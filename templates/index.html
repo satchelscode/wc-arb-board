@@ -74,9 +74,9 @@
     <div class="wrap">
       <h1>World Cup Arb Board</h1>
       <p class="sub">
-        Cross-book arbitrage for FIFA World Cup 2026 team totals and game totals.
-        Only shows lines where over and under exist on <em>different</em> books at the same number.
-        Unique lines on a single site are not listed.
+        Profitable cross-book arbs for FIFA World Cup 2026 team totals and game totals —
+        same line, over on one book and under on another. Break-even or negative-edge
+        pairings are hidden.
       </p>
       <div class="meta" id="meta"></div>
       <div id="content"></div>
@@ -107,7 +107,7 @@
       function renderTable(arbs) {
         const el = document.getElementById("content");
         if (!arbs.length) {
-          el.innerHTML = '<div class="empty">No cross-book arbs at the last scan.</div>';
+          el.innerHTML = '<div class="empty">No profitable cross-book arbs at the last scan.</div>';
           return;
         }
         el.innerHTML = `<table>
@@ -120,8 +120,8 @@
               <td>${a.event_label || "—"}</td>
               <td>${a.event_date || "—"}</td>
               <td>${a.line}</td>
-              <td><span class="book">${fmtBook(a.over_book)}</span><br><span class="edge">${fmtPrice(a.over_price)}</span></td>
-              <td><span class="book">${fmtBook(a.under_book)}</span><br><span class="edge">${fmtPrice(a.under_price)}</span></td>
+              <td><span class="book">${fmtBook(a.over_book)}</span><br>${fmtPrice(a.over_price)}</td>
+              <td><span class="book">${fmtBook(a.under_book)}</span><br>${fmtPrice(a.under_price)}</td>
               <td class="edge">${a.edge_pct.toFixed(2)}%</td>
             </tr>`).join("")}</tbody>
         </table>`;

@@ -15,7 +15,7 @@ ODDS_API_BOOKS = os.getenv(
 ODDS_API_REGIONS = os.getenv("ODDS_API_REGIONS", "us,eu").strip()
 ODDS_API_MARKETS = os.getenv("ODDS_API_MARKETS", "team_totals,totals").strip()
 ODDS_API_MAX_EVENTS = int(os.getenv("ODDS_API_MAX_EVENTS", "80"))
-MIN_EDGE_PCT = float(os.getenv("MIN_EDGE_PCT", "0"))
+MIN_EDGE_PCT = float(os.getenv("MIN_EDGE_PCT", "0.01"))
 
 SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./wc_arb.db").strip()

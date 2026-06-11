@@ -92,20 +92,28 @@ def _point(value: Any) -> float | None:
     return None
 
 
+def _cell_point_odds(cell: dict[str, Any]) -> tuple[float | None, int | None]:
+    point = _point(cell.get("p"))
+    if point is None:
+        point = _point(cell.get("Points"))
+    odds = _american(cell.get("o"))
+    if odds is None:
+        odds = _american(cell.get("Odds"))
+    return point, odds
+
+
 def _ou_from_cells(cells: list[dict[str, Any]]) -> tuple[float | None, int | None, int | None]:
-    """Return (line, over, under) from ls.t / ls.s priced cells."""
+    """Return (line, over, under) from game-total cells (ls.t)."""
     by_point: dict[float, list[int]] = {}
     for cell in cells:
         if not isinstance(cell, dict):
             continue
-        point = _point(cell.get("p"))
-        odds = _american(cell.get("o"))
+        point, odds = _cell_point_odds(cell)
         if point is None or odds is None:
             continue
         by_point.setdefault(point, []).append(odds)
     if not by_point:
         return None, None, None
-    # Prefer the lowest priced line on the board (typical WC team total 0.5).
     line = sorted(by_point)[0]
     prices = sorted(by_point[line], reverse=True)
     if len(prices) >= 2:
@@ -113,6 +121,61 @@ def _ou_from_cells(cells: list[dict[str, Any]]) -> tuple[float | None, int | Non
     if len(prices) == 1:
         return line, prices[0], None
     return None, None, None
+
+
+def _team_totals_from_ls(ls: dict[str, Any]) -> list[tuple[float, int | None, int | None]]:
+    """Steam22 team totals use ls.to (over) and ls.tu (under), not ls.t."""
+    over_by_point: dict[float, int] = {}
+    under_by_point: dict[float, int] = {}
+    for cell in ls.get("to") or []:
+        if not isinstance(cell, dict):
+            continue
+        point, odds = _cell_point_odds(cell)
+        if point is not None and odds is not None:
+            over_by_point[point] = odds
+    for cell in ls.get("tu") or []:
+        if not isinstance(cell, dict):
+            continue
+        point, odds = _cell_point_odds(cell)
+        if point is not None and odds is not None:
+            under_by_point[point] = odds
+    lines: list[tuple[float, int | None, int | None]] = []
+    for point in sorted(set(over_by_point) | set(under_by_point)):
+        if point > _TEAM_TOTAL_MAX_POINT:
+            continue
+        over_p = over_by_point.get(point)
+        under_p = under_by_point.get(point)
+        if over_p is None and under_p is None:
+            continue
+        lines.append((point, over_p, under_p))
+    return lines
+
+
+def _team_totals_from_lines_obj(lines: dict[str, Any]) -> list[tuple[float, int | None, int | None]]:
+    over_by_point: dict[float, int] = {}
+    under_by_point: dict[float, int] = {}
+    for cell in lines.get("TeamTotalsOver") or []:
+        if not isinstance(cell, dict):
+            continue
+        point, odds = _cell_point_odds(cell)
+        if point is not None and odds is not None:
+            over_by_point[point] = odds
+    for cell in lines.get("TeamTotalsUnder") or []:
+        if not isinstance(cell, dict):
+            continue
+        point, odds = _cell_point_odds(cell)
+        if point is not None and odds is not None:
+            under_by_point[point] = odds
+    out: list[tuple[float, int | None, int | None]] = []
+    for point in sorted(set(over_by_point) | set(under_by_point)):
+        if point > _TEAM_TOTAL_MAX_POINT:
+            continue
+        over_p = over_by_point.get(point)
+        under_p = under_by_point.get(point)
+        if over_p is None and under_p is None:
+            continue
+        out.append((point, over_p, under_p))
+    return out
 
 
 def _team_name(node: dict[str, Any]) -> str:
@@ -159,26 +222,20 @@ def _lines_from_team_row(
 ) -> list[MetallicLine]:
     if not team:
         return []
-    t_cells = ls.get("t") if isinstance(ls.get("t"), list) else []
-    cells = [c for c in t_cells if isinstance(c, dict)]
-    if not cells:
-        return []
-    line, over_p, under_p = _ou_from_cells(cells)
-    if line is None or (over_p is None and under_p is None):
-        return []
-    if line > _TEAM_TOTAL_MAX_POINT:
-        return []
-    return [
-        MetallicLine(
-            team=display_team_name(team),
-            opponent=display_team_name(opponent),
-            event_date=event_date,
-            market="team_totals",
-            line=line,
-            over_price=over_p,
-            under_price=under_p,
+    out: list[MetallicLine] = []
+    for line, over_p, under_p in _team_totals_from_ls(ls):
+        out.append(
+            MetallicLine(
+                team=display_team_name(team),
+                opponent=display_team_name(opponent),
+                event_date=event_date,
+                market="team_totals",
+                line=line,
+                over_price=over_p,
+                under_price=under_p,
+            )
         )
-    ]
+    return out
 
 
 def _lines_from_game_totals(
@@ -286,11 +343,33 @@ def extract_wc_lines_from_schedule(payload: Any) -> list[MetallicLine]:
 
         team = _team_name(node)
         ls = node.get("ls")
-        if not team or not isinstance(ls, dict):
+        if team and isinstance(ls, dict):
+            event_date = _maybe_date_from_node(node) or current_date
+            for line in _lines_from_team_row(
+                team=team, opponent="", event_date=event_date, ls=ls
+            ):
+                _add(line)
             continue
-        event_date = _maybe_date_from_node(node) or current_date
-        for line in _lines_from_team_row(team=team, opponent="", event_date=event_date, ls=ls):
-            _add(line)
+
+        lines_obj = node.get("Lines")
+        if isinstance(lines_obj, dict):
+            team = _team_name(node)
+            if not team:
+                continue
+            event_date = _maybe_date_from_node(node) or current_date
+            opponent = ""
+            for point, over_p, under_p in _team_totals_from_lines_obj(lines_obj):
+                _add(
+                    MetallicLine(
+                        team=display_team_name(team),
+                        opponent=display_team_name(opponent),
+                        event_date=event_date,
+                        market="team_totals",
+                        line=point,
+                        over_price=over_p,
+                        under_price=under_p,
+                    )
+                )
 
     return list(found.values())
 
