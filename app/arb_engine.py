@@ -12,6 +12,7 @@ from itertools import product
 
 from app.config import ARB_EXCLUDE_BOOKS, ARB_MARKETS, MIN_EDGE_PCT
 from app.names import display_team_name, normalize_name, team_norm, team_total_label
+from app.prop_keys import binary_side_from_offer, prop_group_subject
 
 
 @dataclass(frozen=True)
@@ -79,7 +80,13 @@ def _group_key(offer: Offer) -> tuple[str, str, tuple[str, str], str, str, float
     if offer.market == "team_totals":
         subject = team_norm(offer.participant)
     elif offer.market == "props":
-        subject = normalize_name(offer.label)
+        subject = prop_group_subject(
+            label=offer.label,
+            participant=offer.participant,
+            prop_detail=offer.label,
+            period=_period_tag(offer),
+            matchup=offer.matchup,
+        )
     else:
         subject = " ".join(offer.event_label.lower().split())
     period = _period_tag(offer)
@@ -147,7 +154,17 @@ def _bet_description(
 
 
 def _leg_description(offer: Offer) -> str:
-    side = offer.side.upper()
+    mapped = binary_side_from_offer(
+        label=offer.label,
+        participant=offer.participant,
+        side=offer.side,
+    )
+    if mapped == "over":
+        side = "YES"
+    elif mapped == "under":
+        side = "NO"
+    else:
+        side = offer.side.upper()
     if offer.market == "team_totals":
         team = display_team_name(offer.participant)
         return f"{team} team total {offer.line:g} {side}"
@@ -176,8 +193,36 @@ def find_cross_book_arbs(offers: list[Offer]) -> list[Arb]:
     seen: set[tuple[str, str, tuple[str, str], str, str, float, str, str]] = set()
 
     for (event_date, _period, matchup, subject, market, line), group in by_group.items():
-        overs = _best_offer_per_book([o for o in group if o.side == "over"])
-        unders = _best_offer_per_book([o for o in group if o.side == "under"])
+        overs = _best_offer_per_book(
+            [
+                o
+                for o in group
+                if (
+                    binary_side_from_offer(
+                        label=o.label,
+                        participant=o.participant,
+                        side=o.side,
+                    )
+                    or o.side
+                )
+                == "over"
+            ]
+        )
+        unders = _best_offer_per_book(
+            [
+                o
+                for o in group
+                if (
+                    binary_side_from_offer(
+                        label=o.label,
+                        participant=o.participant,
+                        side=o.side,
+                    )
+                    or o.side
+                )
+                == "under"
+            ]
+        )
         if not overs or not unders:
             continue
         if len({o.book for o in group}) < 2:

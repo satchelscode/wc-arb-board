@@ -19,7 +19,7 @@ ODDS_API_MARKETS = os.getenv(
 ).strip()
 ODDS_API_PROP_MARKETS = os.getenv(
     "ODDS_API_PROP_MARKETS",
-    "player_goal_scorer_anytime,player_first_goal_scorer,alternate_spreads,alternate_totals",
+    "btts,halftime_fulltime,player_goal_scorer_anytime,player_first_goal_scorer,alternate_spreads,alternate_totals",
 ).strip()
 ODDS_API_MAX_EVENTS = int(os.getenv("ODDS_API_MAX_EVENTS", "80"))
 MIN_EDGE_PCT = float(os.getenv("MIN_EDGE_PCT", "0.01"))

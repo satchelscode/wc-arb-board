@@ -42,6 +42,12 @@ from app.metallic_parser import (
 from app.events import matchup_key, matchup_label, opponent_in_event
 from app.models import ArbBoardSnapshot, utc_now
 from app.names import team_norm, team_total_label
+from app.prop_keys import (
+    detect_prop_type,
+    display_prop_type,
+    prop_selection_key,
+    strip_fixture_prefix,
+)
 from app.odds_client import fetch_events_for_sport
 
 log = logging.getLogger(__name__)
@@ -148,6 +154,7 @@ def _parsed_offers_to_scanner(
             matchup = matchup_key(mo.participant, mo.participant)
 
         fixture = mo.fixture_label or mo.event_label
+        period_label = mo.prop_detail or mo.event_label
         if book == "kalshi" and mo.prop_detail:
             label = mo.prop_detail
         elif mo.market == "totals":
@@ -167,9 +174,30 @@ def _parsed_offers_to_scanner(
             label = f"{fixture} {mo.participant}"
             participant = mo.participant
         elif mo.market in ("props", "futures"):
-            label = mo.prop_detail or mo.event_label
-            if mo.participant and mo.participant.lower() not in label.lower():
-                label = f"{label} — {mo.participant}"
+            detail = strip_fixture_prefix(mo.prop_detail or mo.event_label)
+            period_label = detail
+            ptype = detect_prop_type(detail, mo.participant)
+            if ptype != "unknown":
+                label = display_prop_type(ptype)
+                sel = prop_selection_key(
+                    prop_type=ptype,
+                    label=detail,
+                    participant=mo.participant,
+                    prop_detail=detail,
+                )
+                if ptype in (
+                    "team_score_game",
+                    "team_score_1h",
+                    "ht_ft",
+                    "correct_score",
+                    "first_goalscorer",
+                    "anytime_scorer",
+                ) and sel:
+                    label = f"{label} — {sel}"
+            else:
+                label = detail
+                if mo.participant and mo.participant.lower() not in label.lower():
+                    label = f"{label} — {mo.participant}"
             participant = mo.participant
         else:
             label = mo.event_label
@@ -187,7 +215,7 @@ def _parsed_offers_to_scanner(
                 line=mo.line,
                 side=mo.side,
                 american=int(mo.american),
-                period=_offer_period(mo, label=label),
+                period=_offer_period(mo, label=period_label),
             )
         )
     return out
@@ -390,6 +418,8 @@ def _odds_api_internal_market(api_key: str) -> tuple[str, str]:
         if "team" in mk:
             return "team_totals", mk
         return "totals", mk
+    if mk in ("btts", "halftime_fulltime"):
+        return "props", mk
     if mk.startswith("player_"):
         return "props", mk
     return mk, mk
@@ -555,6 +585,42 @@ def collect_odds_api_offers() -> list[Offer]:
                             line=0.0,
                             side="ml",
                             american=american,
+                        )
+                    elif internal_market == "props" and prop_key == "btts":
+                        low_name = name_field.lower()
+                        if low_name not in ("yes", "no"):
+                            continue
+                        _put_offer(
+                            bucket,
+                            book=book,
+                            market=internal_market,
+                            label="Both teams to score",
+                            event_date=event_date,
+                            event_label=event_label,
+                            participant=name_field,
+                            matchup=game_matchup,
+                            line=0.0,
+                            side=low_name,
+                            american=american,
+                            prop_key=prop_key,
+                        )
+                    elif internal_market == "props" and prop_key == "halftime_fulltime":
+                        selection = name_field or desc_field
+                        if not selection:
+                            continue
+                        _put_offer(
+                            bucket,
+                            book=book,
+                            market=internal_market,
+                            label="Halftime and Full Time",
+                            event_date=event_date,
+                            event_label=event_label,
+                            participant=selection,
+                            matchup=game_matchup,
+                            line=0.0,
+                            side="ml",
+                            american=american,
+                            prop_key=prop_key,
                         )
                     elif internal_market == "props":
                         low_name = name_field.lower()

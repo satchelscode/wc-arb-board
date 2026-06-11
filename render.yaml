@@ -44,7 +44,7 @@ services:
       - key: BUCKEYE2_LOGIN_URL
         sync: false
       - key: ODDS_API_PROP_MARKETS
-        value: "player_goal_scorer_anytime,player_first_goal_scorer,alternate_spreads,alternate_totals"
+        value: "btts,halftime_fulltime,player_goal_scorer_anytime,player_first_goal_scorer,alternate_spreads,alternate_totals"
       - key: KALSHI_ENABLED
         sync: false
 
@@ -96,7 +96,7 @@ services:
       - key: ODDS_API_MARKETS
         value: "h2h,spreads,totals,team_totals"
       - key: ODDS_API_PROP_MARKETS
-        value: "player_goal_scorer_anytime,player_first_goal_scorer,alternate_spreads,alternate_totals"
+        value: "btts,halftime_fulltime,player_goal_scorer_anytime,player_first_goal_scorer,alternate_spreads,alternate_totals"
       - key: KALSHI_ENABLED
         sync: false
       - key: KALSHI_SERIES_TICKERS
