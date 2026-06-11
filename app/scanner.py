@@ -49,6 +49,7 @@ from app.prop_keys import (
     strip_fixture_prefix,
 )
 from app.odds_client import fetch_events_for_sport
+from app.prop_diagnostics import format_prop_cross_book_log, summarize_prop_cross_book
 
 log = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -184,6 +185,7 @@ def _parsed_offers_to_scanner(
                     label=detail,
                     participant=mo.participant,
                     prop_detail=detail,
+                    matchup=matchup,
                 )
                 if ptype in (
                     "team_score_game",
@@ -719,6 +721,7 @@ def refresh_snapshot(*, session) -> dict[str, Any]:
     api = collect_odds_api_offers()
     all_offers = ace + metallic + buckeye2 + kalshi + api
     arbs = find_cross_book_arbs(all_offers)
+    prop_cross_book = summarize_prop_cross_book(all_offers)
 
     books = sorted({o.book for o in all_offers})
     by_book = {b: sum(1 for o in all_offers if o.book == b) for b in books}
@@ -736,6 +739,7 @@ def refresh_snapshot(*, session) -> dict[str, Any]:
             "ace_by_market": _offers_by_market(ace),
             "kalshi_by_market": _offers_by_market(kalshi),
             "odds_api_by_market": _offers_by_market(api),
+            "prop_cross_book": prop_cross_book,
             "arbs": [arb_to_dict(a) for a in arbs],
         }
     )
@@ -748,6 +752,7 @@ def refresh_snapshot(*, session) -> dict[str, Any]:
         row.payload_json = body
     session.commit()
     log.info("Scan complete: offers=%s arbs=%s", len(all_offers), len(arbs))
+    log.info(format_prop_cross_book_log(prop_cross_book))
     return payload
 
 

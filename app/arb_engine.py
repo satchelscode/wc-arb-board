@@ -76,7 +76,7 @@ def _period_tag(offer: Offer) -> str:
     return "game"
 
 
-def _group_key(offer: Offer) -> tuple[str, str, tuple[str, str], str, str, float]:
+def group_key(offer: Offer) -> tuple[str, str, tuple[str, str], str, str, float]:
     if offer.market == "team_totals":
         subject = team_norm(offer.participant)
     elif offer.market == "props":
@@ -101,7 +101,7 @@ def _group_key(offer: Offer) -> tuple[str, str, tuple[str, str], str, str, float
 
 
 def _offer_identity_key(offer: Offer) -> tuple[str, str, str, tuple[str, str], str, float, str]:
-    event_date, period, matchup, subject, market, line = _group_key(offer)
+    event_date, period, matchup, subject, market, line = group_key(offer)
     return (offer.book, market, event_date, period, matchup, subject, line, offer.side)
 
 
@@ -187,7 +187,7 @@ def find_cross_book_arbs(offers: list[Offer]) -> list[Arb]:
         tuple[str, str, tuple[str, str], str, str, float], list[Offer]
     ] = {}
     for offer in offers:
-        by_group.setdefault(_group_key(offer), []).append(offer)
+        by_group.setdefault(group_key(offer), []).append(offer)
 
     arbs: list[Arb] = []
     seen: set[tuple[str, str, tuple[str, str], str, str, float, str, str]] = set()

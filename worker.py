@@ -56,6 +56,8 @@ def main() -> None:
             with SessionLocal() as session:
                 payload = refresh_snapshot(session=session)
             by_book = payload.get("offers_by_book") or {}
+            prop_diag = payload.get("prop_cross_book") or {}
+            sample = (prop_diag.get("samples") or [])[:3]
             log.info(
                 "Refreshed: offers=%s arbs=%s books=%s by_book=%s",
                 payload.get("offer_count"),
@@ -63,6 +65,15 @@ def main() -> None:
                 ",".join(payload.get("books") or []),
                 ",".join(f"{k}:{v}" for k, v in sorted(by_book.items())),
             )
+            if sample:
+                for row in sample:
+                    log.info(
+                        "Prop match sample: %s | %s | books=%s | edge=%.3f%%",
+                        row.get("prop_type"),
+                        row.get("event_label"),
+                        ",".join(row.get("books") or []),
+                        float(row.get("best_edge_pct") or 0),
+                    )
         except Exception:
             log.exception("Scan failed")
         time.sleep(max(60, SCAN_INTERVAL_SECONDS))
