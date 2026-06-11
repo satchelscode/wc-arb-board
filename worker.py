@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 import time
 
@@ -26,10 +27,12 @@ def _ensure_schema() -> None:
 
 def main() -> None:
     db_driver = normalized_database_url(DATABASE_URL).split("://", 1)[0] if DATABASE_URL else "unset"
+    git_commit = (os.getenv("RENDER_GIT_COMMIT") or "local")[:7]
     log.info(
-        "WC arb board worker starting (interval=%ss, db_driver=%s)",
+        "WC arb board worker starting (interval=%ss, db_driver=%s, commit=%s)",
         SCAN_INTERVAL_SECONDS,
         db_driver,
+        git_commit,
     )
     try:
         _ensure_schema()
