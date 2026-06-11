@@ -42,7 +42,12 @@ def fetch_kalshi_markets(*, series_ticker: str, status: str | None = None) -> li
                 break
             batch = payload.get("markets")
             if isinstance(batch, list):
-                out.extend(m for m in batch if isinstance(m, dict))
+                for market in batch:
+                    if not isinstance(market, dict):
+                        continue
+                    if not market.get("series_ticker"):
+                        market = {**market, "series_ticker": series_ticker}
+                    out.append(market)
             cursor = str(payload.get("cursor") or "").strip()
             if not cursor:
                 break

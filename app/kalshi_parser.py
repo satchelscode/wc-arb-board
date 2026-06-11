@@ -27,7 +27,7 @@ _MONTHS = {
 _VS_RE = re.compile(r"^(.+?)\s+vs\s+(.+?)(?:\s+Winner)?\??$", re.I)
 _TOTAL_RE = re.compile(r"over\s+(\d+(?:\.\d+)?)\s+goals?", re.I)
 _TEAM_TOTAL_RE = re.compile(
-    r"(.+?)\s+score\s+over\s+(\d+(?:\.\d+)?)\s+goals?",
+    r"(?:Will|If)\s+(.+?)\s+score\s+over\s+(\d+(?:\.\d+)?)\s+goals?",
     re.I,
 )
 _SPREAD_RE = re.compile(
@@ -35,6 +35,10 @@ _SPREAD_RE = re.compile(
     re.I,
 )
 _GOALSCORER_RE = re.compile(r"^(.+?):\s*(\d+)\+\s*goals?$", re.I)
+_RULES_FIXTURE_RE = re.compile(
+    r"in the (.+?)\s+vs\s+(.+?)\s+professional",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -81,6 +85,16 @@ def _date_from_ticker(ticker: str) -> str:
     return f"20{yy}-{month:02d}-{int(dd):02d}"
 
 
+def _series_from_market(market: dict[str, Any]) -> str:
+    series = str(market.get("series_ticker") or "").strip().upper()
+    if series:
+        return series
+    ticker = str(market.get("ticker") or market.get("event_ticker") or "")
+    if "-" in ticker:
+        return ticker.split("-", 1)[0].upper()
+    return ""
+
+
 def _fixture_from_title(title: str) -> tuple[str, str, str]:
     m = _VS_RE.match((title or "").strip())
     if not m:
@@ -88,6 +102,24 @@ def _fixture_from_title(title: str) -> tuple[str, str, str]:
     team_a = display_team_name(m.group(1).strip())
     team_b = display_team_name(m.group(2).strip())
     return team_a, team_b, matchup_label(team_a, team_b)
+
+
+def _fixture_from_rules(rules: str) -> tuple[str, str, str]:
+    m = _RULES_FIXTURE_RE.search(rules or "")
+    if not m:
+        return "", "", ""
+    team_a = display_team_name(m.group(1).strip())
+    team_b = display_team_name(m.group(2).strip())
+    return team_a, team_b, matchup_label(team_a, team_b)
+
+
+def _fixture_context(
+    title: str, rules: str
+) -> tuple[str, str, str]:
+    team_a, team_b, fixture = _fixture_from_title(title)
+    if fixture and team_a and team_b:
+        return team_a, team_b, fixture
+    return _fixture_from_rules(rules)
 
 
 def _append_side(
@@ -125,13 +157,15 @@ def _append_side(
 
 
 def _lines_from_market(market: dict[str, Any]) -> list[KalshiOffer]:
-    series = str(market.get("series_ticker") or "").upper()
+    series = _series_from_market(market)
     title = str(market.get("title") or "").strip()
     rules = str(market.get("rules_primary") or "").strip()
     yes_sub = str(market.get("yes_sub_title") or "").strip()
     ticker = str(market.get("ticker") or "")
-    event_date = _date_from_ticker(ticker)
-    team_a, team_b, fixture = _fixture_from_title(title)
+    event_date = _date_from_ticker(ticker) or _date_from_ticker(
+        str(market.get("event_ticker") or "")
+    )
+    team_a, team_b, fixture = _fixture_context(title, rules)
     yes_ask = _dollar_ask(market.get("yes_ask_dollars"))
     no_ask = _dollar_ask(market.get("no_ask_dollars"))
     out: list[KalshiOffer] = []

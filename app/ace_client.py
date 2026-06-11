@@ -96,8 +96,13 @@ def _discover_wc_helper_urls(site: AceSite, html: str) -> list[str]:
         candidate = m.group(0)
         if _WC_RE.search(candidate):
             _add(candidate)
+    lg_ids: list[str] = []
     for m in _LG_RE.finditer(html or ""):
-        _add(f"{base}&lg={m.group(1)}")
+        lg_ids.append(m.group(1))
+    for lg in sorted(set(lg_ids), key=int):
+        _add(f"{base}&lg={lg}")
+        if len(discovered) >= 12:
+            break
 
     if (html or "").strip().startswith(("{", "[")):
         try:
