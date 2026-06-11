@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>World Cup Arb Board</title>
+    <style>
+      :root {
+        --bg: #0b1220;
+        --card: #151f33;
+        --border: #2a3a55;
+        --text: #e8eef7;
+        --muted: #8fa3bf;
+        --green: #3dd68c;
+        --accent: #5b9cff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: radial-gradient(1200px 600px at 10% -10%, #1a2a4a 0%, var(--bg) 55%);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      .wrap { max-width: 1100px; margin: 0 auto; }
+      h1 { margin: 0 0 8px; font-size: 1.75rem; letter-spacing: -0.02em; }
+      .sub { color: var(--muted); margin: 0 0 20px; line-height: 1.5; max-width: 720px; }
+      .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+      .pill {
+        border: 1px solid var(--border);
+        background: var(--card);
+        border-radius: 999px;
+        padding: 7px 14px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .pill strong { color: var(--text); }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      th, td {
+        border-bottom: 1px solid var(--border);
+        padding: 12px 14px;
+        text-align: left;
+        font-size: 14px;
+      }
+      th {
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+      }
+      tr:last-child td { border-bottom: none; }
+      .edge { color: var(--green); font-weight: 700; }
+      .book { color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+      .empty {
+        padding: 36px 20px;
+        text-align: center;
+        color: var(--muted);
+        background: var(--card);
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>World Cup Arb Board</h1>
+      <p class="sub">
+        Cross-book arbitrage for FIFA World Cup 2026 team totals and game totals.
+        Only shows lines where over and under exist on <em>different</em> books at the same number.
+        Unique lines on a single site are not listed.
+      </p>
+      <div class="meta" id="meta"></div>
+      <div id="content"></div>
+    </div>
+    <script>
+      function fmtPrice(n) { return n > 0 ? `+${n}` : `${n}`; }
+      function fmtScanned(iso) {
+        if (!iso) return "Waiting for first scan…";
+        return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York" }) + " ET";
+      }
+      function renderMeta(data) {
+        const books = (data.books || []).join(", ") || "—";
+        document.getElementById("meta").innerHTML = `
+          <span class="pill">Last scan: <strong>${fmtScanned(data.scanned_at)}</strong></span>
+          <span class="pill">Offers tracked: <strong>${data.offer_count || 0}</strong></span>
+          <span class="pill">Arbs: <strong>${data.arb_count || 0}</strong></span>
+          <span class="pill">Books: <strong>${books}</strong></span>
+        `;
+      }
+      function renderTable(arbs) {
+        const el = document.getElementById("content");
+        if (!arbs.length) {
+          el.innerHTML = '<div class="empty">No cross-book arbs at the last scan.</div>';
+          return;
+        }
+        el.innerHTML = `<table>
+          <thead><tr>
+            <th>Market</th><th>Date</th><th>Line</th><th>Over</th><th>Under</th><th>Edge</th>
+          </tr></thead>
+          <tbody>${arbs.map(a => `
+            <tr>
+              <td>${a.label}</td>
+              <td>${a.event_date || "—"}</td>
+              <td>${a.line}</td>
+              <td><span class="book">${a.over_book}</span><br><span class="edge">${fmtPrice(a.over_price)}</span></td>
+              <td><span class="book">${a.under_book}</span><br><span class="edge">${fmtPrice(a.under_price)}</span></td>
+              <td class="edge">${a.edge_pct.toFixed(2)}%</td>
+            </tr>`).join("")}</tbody>
+        </table>`;
+      }
+      async function load() {
+        const res = await fetch("/api/arbs");
+        const data = await res.json();
+        renderMeta(data);
+        renderTable(data.arbs || []);
+      }
+      load();
+      setInterval(load, 60000);
+    </script>
+  </body>
+</html>

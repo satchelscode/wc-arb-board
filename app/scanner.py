@@ -1,0 +1,305 @@
+"""Collect World Cup offers from ACE + Odds API and persist arb snapshot."""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime
+from typing import Any
+from zoneinfo import ZoneInfo
+
+import requests
+
+from app.ace_client import fetch_wc_helper_page
+from app.ace_parser import TeamTotalLine, extract_team_totals_from_helper
+from app.ace_sites import configured_ace_sites
+from app.arb_engine import Offer, arb_to_dict, find_cross_book_arbs
+from app.config import (
+    ODDS_API_BASE,
+    ODDS_API_BOOKS,
+    ODDS_API_KEY,
+    ODDS_API_MARKETS,
+    ODDS_API_MAX_EVENTS,
+    ODDS_API_REGIONS,
+    ODDS_API_SPORT_KEY,
+)
+from app.models import ArbBoardSnapshot, utc_now
+from app.names import team_norm
+from app.odds_client import fetch_events_for_sport
+
+log = logging.getLogger(__name__)
+ET = ZoneInfo("America/New_York")
+_STATE_KEY = "latest"
+
+
+def _parse_csv(raw: str) -> tuple[str, ...]:
+    return tuple(x.strip().lower() for x in (raw or "").split(",") if x.strip())
+
+
+def _commence_to_et_date(commence: str | None) -> str:
+    if not commence:
+        return ""
+    try:
+        dt = datetime.fromisoformat(str(commence).replace("Z", "+00:00"))
+        return dt.astimezone(ET).date().isoformat()
+    except ValueError:
+        return ""
+
+
+def _team_lines_to_offers(lines: list[TeamTotalLine], *, book: str) -> list[Offer]:
+    offers: list[Offer] = []
+    for line in lines:
+        label = f"{line.team} team total {line.line:g}"
+        pt = round(line.line, 2)
+        if line.over_price is not None:
+            offers.append(
+                Offer(
+                    book=book,
+                    market="team_totals",
+                    label=label,
+                    event_date=line.event_date,
+                    event_label=line.team,
+                    participant=line.team,
+                    line=pt,
+                    side="over",
+                    american=int(line.over_price),
+                )
+            )
+        if line.under_price is not None:
+            offers.append(
+                Offer(
+                    book=book,
+                    market="team_totals",
+                    label=label,
+                    event_date=line.event_date,
+                    event_label=line.team,
+                    participant=line.team,
+                    line=pt,
+                    side="under",
+                    american=int(line.under_price),
+                )
+            )
+    return offers
+
+
+def collect_ace_offers() -> list[Offer]:
+    offers: list[Offer] = []
+    for site in configured_ace_sites():
+        page = fetch_wc_helper_page(site)
+        if not page:
+            continue
+        html, _url = page
+        lines = extract_team_totals_from_helper(html)
+        offers.extend(_team_lines_to_offers(lines, book=site.key))
+        log.info("%s: %s team-total lines", site.label, len(lines))
+    return offers
+
+
+def _put_offer(
+    bucket: dict[tuple[str, str, float, str], Offer],
+    *,
+    book: str,
+    market: str,
+    label: str,
+    event_date: str,
+    event_label: str,
+    participant: str,
+    line: float,
+    side: str,
+    american: int,
+) -> None:
+    bucket[(book, market, round(line, 2), side)] = Offer(
+        book=book,
+        market=market,
+        label=label,
+        event_date=event_date,
+        event_label=event_label,
+        participant=participant,
+        line=round(line, 2),
+        side=side,
+        american=american,
+    )
+
+
+def collect_odds_api_offers() -> list[Offer]:
+    books = _parse_csv(ODDS_API_BOOKS)
+    markets = _parse_csv(ODDS_API_MARKETS)
+    if not ODDS_API_KEY or not books or not markets:
+        return []
+
+    bucket: dict[tuple[str, str, float, str], Offer] = {}
+    events = fetch_events_for_sport(ODDS_API_SPORT_KEY)[: max(1, ODDS_API_MAX_EVENTS)]
+    markets_param = ",".join(markets)
+    books_param = ",".join(books)
+
+    for event in events:
+        event_id = event.get("id")
+        if not event_id:
+            continue
+        home = str(event.get("home_team") or "").strip()
+        away = str(event.get("away_team") or "").strip()
+        event_label = f"{away} @ {home}" if away and home else ""
+        event_date = _commence_to_et_date(event.get("commence_time"))
+        url = f"{ODDS_API_BASE}/sports/{ODDS_API_SPORT_KEY}/events/{event_id}/odds"
+        params = {
+            "apiKey": ODDS_API_KEY,
+            "regions": ODDS_API_REGIONS,
+            "markets": markets_param,
+            "bookmakers": books_param,
+            "oddsFormat": "american",
+        }
+        try:
+            response = requests.get(url, params=params, timeout=25)
+            if response.status_code in (404, 422):
+                continue
+            response.raise_for_status()
+            payload = response.json()
+        except requests.RequestException as exc:
+            log.warning("Odds API event %s failed: %s", event_id, exc)
+            continue
+
+        for bookmaker in payload.get("bookmakers", []):
+            book = str(bookmaker.get("key") or "").strip().lower()
+            if book not in books:
+                continue
+            for market in bookmaker.get("markets", []):
+                mk = str(market.get("key") or "").strip().lower()
+                if mk not in markets:
+                    continue
+                for outcome in market.get("outcomes", []):
+                    if not isinstance(outcome, dict):
+                        continue
+                    name_field = str(outcome.get("name") or "").strip()
+                    desc_field = str(outcome.get("description") or "").strip()
+                    price_raw = outcome.get("price")
+                    if not isinstance(price_raw, (int, float)) or isinstance(price_raw, bool):
+                        continue
+                    american = int(price_raw)
+                    point_raw = outcome.get("point")
+                    point: float | None = None
+                    if isinstance(point_raw, (int, float)) and not isinstance(point_raw, bool):
+                        point = float(point_raw)
+
+                    if mk == "team_totals":
+                        if name_field.lower() in ("over", "under"):
+                            side, team = name_field.lower(), desc_field
+                        elif desc_field.lower() in ("over", "under"):
+                            side, team = desc_field.lower(), name_field
+                        else:
+                            continue
+                        if point is None:
+                            continue
+                        _put_offer(
+                            bucket,
+                            book=book,
+                            market=mk,
+                            label=f"{team} team total {point:g}",
+                            event_date=event_date,
+                            event_label=event_label,
+                            participant=team,
+                            line=point,
+                            side=side,
+                            american=american,
+                        )
+                    elif mk == "totals" and point is not None:
+                        if name_field.lower() in ("over", "under"):
+                            side = name_field.lower()
+                        elif desc_field.lower() in ("over", "under"):
+                            side = desc_field.lower()
+                        else:
+                            continue
+                        _put_offer(
+                            bucket,
+                            book=book,
+                            market=mk,
+                            label=f"{event_label} total {point:g}",
+                            event_date=event_date,
+                            event_label=event_label,
+                            participant="game",
+                            line=point,
+                            side=side,
+                            american=american,
+                        )
+    return list(bucket.values())
+
+
+def _align_ace_dates(ace: list[Offer], api: list[Offer]) -> list[Offer]:
+    if not ace or not api:
+        return ace
+    dates: dict[tuple[str, float], set[str]] = {}
+    for o in api:
+        if o.market != "team_totals":
+            continue
+        dates.setdefault((team_norm(o.participant), o.line), set()).add(o.event_date)
+    aligned: list[Offer] = []
+    for o in ace:
+        dset = dates.get((team_norm(o.participant), o.line))
+        if dset:
+            aligned.append(
+                Offer(
+                    book=o.book,
+                    market=o.market,
+                    label=o.label,
+                    event_date=sorted(dset)[0],
+                    event_label=o.event_label,
+                    participant=o.participant,
+                    line=o.line,
+                    side=o.side,
+                    american=o.american,
+                )
+            )
+        else:
+            aligned.append(o)
+    return aligned
+
+
+def refresh_snapshot(*, session) -> dict[str, Any]:
+    ace = collect_ace_offers()
+    api = collect_odds_api_offers()
+    ace = _align_ace_dates(ace, api)
+    all_offers = ace + api
+    arbs = find_cross_book_arbs(all_offers)
+
+    books = sorted({o.book for o in all_offers})
+    by_book = {b: sum(1 for o in all_offers if o.book == b) for b in books}
+    scanned_at = utc_now()
+    payload = {
+        "scanned_at": scanned_at.isoformat(),
+        "sport_key": ODDS_API_SPORT_KEY,
+        "offer_count": len(all_offers),
+        "arb_count": len(arbs),
+        "books": books,
+        "offers_by_book": by_book,
+        "arbs": [arb_to_dict(a) for a in arbs],
+    }
+    body = json.dumps(payload)
+    row = session.get(ArbBoardSnapshot, _STATE_KEY)
+    if row is None:
+        session.add(ArbBoardSnapshot(key=_STATE_KEY, scanned_at=scanned_at, payload_json=body))
+    else:
+        row.scanned_at = scanned_at
+        row.payload_json = body
+    session.commit()
+    log.info("Scan complete: offers=%s arbs=%s", len(all_offers), len(arbs))
+    return payload
+
+
+def load_snapshot(*, session) -> dict[str, Any]:
+    row = session.get(ArbBoardSnapshot, _STATE_KEY)
+    if row is None or not row.payload_json:
+        return {
+            "scanned_at": None,
+            "sport_key": ODDS_API_SPORT_KEY,
+            "offer_count": 0,
+            "arb_count": 0,
+            "books": [],
+            "offers_by_book": {},
+            "arbs": [],
+        }
+    try:
+        data = json.loads(row.payload_json)
+        if isinstance(data, dict):
+            return data
+    except json.JSONDecodeError:
+        pass
+    return {"arbs": [], "offer_count": 0, "arb_count": 0}
