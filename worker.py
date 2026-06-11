@@ -15,7 +15,7 @@ logging.basicConfig(
 log = logging.getLogger("wc-arb-worker")
 
 from app.config import DATABASE_URL, ODDS_API_KEY, SCAN_INTERVAL_SECONDS
-from app.db import SessionLocal, engine
+from app.db import SessionLocal, engine, normalized_database_url
 from app.models import Base
 from app.scanner import refresh_snapshot
 
@@ -25,7 +25,12 @@ def _ensure_schema() -> None:
 
 
 def main() -> None:
-    log.info("WC arb board worker starting (interval=%ss)", SCAN_INTERVAL_SECONDS)
+    db_driver = normalized_database_url(DATABASE_URL).split("://", 1)[0] if DATABASE_URL else "unset"
+    log.info(
+        "WC arb board worker starting (interval=%ss, db_driver=%s)",
+        SCAN_INTERVAL_SECONDS,
+        db_driver,
+    )
     try:
         _ensure_schema()
     except Exception:
