@@ -273,10 +273,10 @@ def _lines_from_matchup_game(game: dict[str, Any]) -> list[AceOffer]:
     event_date = _gmdt_to_iso(_first_str(game, "gmdt"))
     out: list[AceOffer] = []
 
-    spread_a = _first_float(row, "hsprdh", "hsprdt", "HomSpread")
-    spread_b = _first_float(row, "vsprdh", "vsprdt", "VisSpread")
-    odds_a = _first_int(row, "hsprdoddst", "hspoddst", "hsprdodds")
-    odds_b = _first_int(row, "vsprdoddst", "vspoddst", "vsprdodds")
+    spread_a = _first_float(row, "hsprdt", "hsprdh", "HomSpread")
+    spread_b = _first_float(row, "vsprdt", "vsprdh", "VisSpread")
+    odds_a = _first_int(row, "hsprdst", "hsprdoddst", "hspoddst", "hsprdodds")
+    odds_b = _first_int(row, "vsprdst", "vspoddst", "vsprdoddst", "vsprdodds")
     if odds_a is not None and spread_a is not None:
         out.append(
             AceOffer(
@@ -306,9 +306,15 @@ def _lines_from_matchup_game(game: dict[str, Any]) -> list[AceOffer]:
             )
         )
 
-    ml_a = _first_int(row, "hoddsh", "hoddst", "hmloddst", "HomMoneyLine")
-    ml_b = _first_int(row, "voddsh", "voddst", "vmloddst", "VisMoneyLine")
-    ml_d = _first_int(row, "doddsh", "doddst", "dmloddst", "DrawMoneyLine")
+    ml_a = _first_int(
+        row, "hmloddst", "hoddsh", "hoddst", "hmloddst", "HomMoneyLine"
+    )
+    ml_b = _first_int(
+        row, "vmloddst", "voddsh", "voddst", "vmloddst", "VisMoneyLine"
+    )
+    ml_d = _first_int(
+        row, "dmloddst", "doddsh", "doddst", "dmloddst", "DrawMoneyLine"
+    )
     if ml_a is not None:
         out.append(
             AceOffer(

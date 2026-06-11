@@ -33,9 +33,13 @@ FALCON_STRAIGHT_URL = os.getenv(
     "FALCON_STRAIGHT_URL",
     "https://backend.falcon.ag/wager/CreateSports.aspx?WT=0",
 ).strip()
+FALCON_WC_LG_IDS = os.getenv(
+    "FALCON_WC_LG_IDS",
+    "3744,3745,3749,3752,4120,4069,866,3829,3830,3831,3832,3833,3834,3835,5091,5092,5093,5094",
+).strip()
 FALCON_WC_HELPER_URL = os.getenv(
     "FALCON_WC_HELPER_URL",
-    "https://backend.falcon.ag/wager/NewScheduleHelper.aspx?WT=0&lg=3749",
+    f"https://backend.falcon.ag/wager/NewScheduleHelper.aspx?WT=0&lg={FALCON_WC_LG_IDS}",
 ).strip()
 FALCON_WC_HELPER_URLS = os.getenv("FALCON_WC_HELPER_URLS", "").strip()
 FALCON_USERNAME = os.getenv("FALCON_USERNAME", "").strip()

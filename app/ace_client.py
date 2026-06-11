@@ -160,13 +160,20 @@ def fetch_wc_helper_pages(site: AceSite) -> list[tuple[str, str]]:
         if not helper or helper in seen:
             continue
         seen.add(helper)
+        referer = site.straight_url
+        lg_match = re.search(r"[?&]lg=([^&]+)", helper)
+        if lg_match:
+            referer = (
+                f"{site.origin.rstrip('/')}/wager/NewSchedule.aspx"
+                f"?WT=0&lg={lg_match.group(1)}"
+            )
         try:
             r = s.get(
                 helper,
-                timeout=25,
+                timeout=45,
                 headers={
                     "Accept": "application/json, text/plain, */*",
-                    "Referer": site.straight_url,
+                    "Referer": referer,
                 },
             )
             r.raise_for_status()
