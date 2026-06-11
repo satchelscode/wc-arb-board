@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any
 
 import requests
@@ -24,6 +25,10 @@ _LEGACY_BODY_KEYS = frozenset({"languageID", "lineType", "id"})
 _DEFAULT_WC_SCHEDULE_REQUESTS: list[dict[str, int]] = [
     {"IdSport": 232, "Period": 0},  # FIFA - World Cup (spread/ML/total/team total)
 ]
+_SCHEDULE_BODIES_CACHE: list[Any] | None = None
+_SCHEDULE_PAYLOAD_CACHE: tuple[float, Any] | None = None
+_SCHEDULE_CACHE_TTL_S = 300.0
+_SCHEDULE_POST_RETRIES = 3
 
 
 def _auth_headers(token: str) -> dict[str, str]:
@@ -159,12 +164,17 @@ def _fetch_sports_menu(token: str) -> Any | None:
 
 
 def _schedule_post_bodies(token: str) -> list[Any]:
+    global _SCHEDULE_BODIES_CACHE
+    if _SCHEDULE_BODIES_CACHE is not None:
+        return _SCHEDULE_BODIES_CACHE
+
     raw = (METALLIC_SCHEDULE_POST_BODY or "").strip()
     if raw and raw not in ("", "{}"):
         try:
             parsed = json.loads(raw)
             if not _is_legacy_body(parsed):
-                return [parsed]
+                _SCHEDULE_BODIES_CACHE = [parsed]
+                return _SCHEDULE_BODIES_CACHE
         except json.JSONDecodeError:
             log.warning("METALLIC_SCHEDULE_POST_BODY is not valid JSON; using auto-discovery")
 
@@ -173,24 +183,31 @@ def _schedule_post_bodies(token: str) -> list[Any]:
         wc = _collect_sport_requests(menu, wc_only=True)
         if wc:
             log.info("Metallic: discovered %s WC sport id(s) from menu", len(wc))
-            return [wc]
+            _SCHEDULE_BODIES_CACHE = [wc]
+            return _SCHEDULE_BODIES_CACHE
         soccer = _collect_sport_requests(menu, wc_only=False)
         soccer = [s for s in soccer if s]  # noqa: C416 — explicit copy
         if soccer:
-            log.info("Metallic: using %s sport id(s) from menu (no FIFA/WC label match)", len(soccer))
-            return [soccer[:12]]
+            log.info(
+                "Metallic: using %s sport id(s) from menu (no FIFA/WC label match)",
+                len(soccer),
+            )
+            _SCHEDULE_BODIES_CACHE = [soccer[:12]]
+            return _SCHEDULE_BODIES_CACHE
 
-    # Last resort: legacy body if user left it in env, else known WC spid defaults.
     if raw and raw not in ("", "{}"):
         try:
-            return [json.loads(raw)]
+            _SCHEDULE_BODIES_CACHE = [json.loads(raw)]
+            return _SCHEDULE_BODIES_CACHE
         except json.JSONDecodeError:
             pass
+
     log.info(
         "Metallic: using default WC schedule body IdSport=%s",
         _DEFAULT_WC_SCHEDULE_REQUESTS[0]["IdSport"],
     )
-    return [_DEFAULT_WC_SCHEDULE_REQUESTS]
+    _SCHEDULE_BODIES_CACHE = [_DEFAULT_WC_SCHEDULE_REQUESTS]
+    return _SCHEDULE_BODIES_CACHE
 
 
 def _post_schedule(token: str, body: Any) -> Any | None:
@@ -210,6 +227,16 @@ def _post_schedule(token: str, body: Any) -> Any | None:
     except (requests.RequestException, ValueError, json.JSONDecodeError) as exc:
         log.warning("Metallic schedule fetch failed: %s", exc)
         return None
+
+
+def _payload_score(payload: Any) -> int:
+    stats = _payload_stats(payload)
+    if "tt_cells=" not in stats:
+        return 0
+    try:
+        return int(stats.rsplit("tt_cells=", 1)[-1])
+    except ValueError:
+        return 0
 
 
 def _payload_stats(payload: Any) -> str:
@@ -244,29 +271,42 @@ def _payload_stats(payload: Any) -> str:
 
 
 def fetch_metallic_schedule() -> Any | None:
+    global _SCHEDULE_PAYLOAD_CACHE
+
+    now = time.monotonic()
+    if _SCHEDULE_PAYLOAD_CACHE is not None:
+        cached_at, cached = _SCHEDULE_PAYLOAD_CACHE
+        if now - cached_at < _SCHEDULE_CACHE_TTL_S and _payload_score(cached) > 0:
+            return cached
+
     token = metallic_access_token()
     if not token:
         log.warning("Metallic: no JWT (set METALLIC_USERNAME / METALLIC_PASSWORD)")
         return None
 
-    best: Any | None = None
-    best_score = -1
-    for body in _schedule_post_bodies(token):
-        payload = _post_schedule(token, body)
-        if payload is None:
-            continue
-        stats = _payload_stats(payload)
-        score = 0
-        if "tt_cells=" in stats:
-            score = int(stats.split("tt_cells=")[-1])
-        if score > best_score:
-            best = payload
-            best_score = score
-        if score > 0:
-            log.debug("Metallic schedule ok (%s)", stats)
-            return payload
+    bodies = _schedule_post_bodies(token)
+    for attempt in range(1, _SCHEDULE_POST_RETRIES + 1):
+        for body in bodies:
+            payload = _post_schedule(token, body)
+            if payload is None:
+                continue
+            score = _payload_score(payload)
+            if score > 0:
+                stats = _payload_stats(payload)
+                log.info("Metallic schedule fetched (%s)", stats)
+                _SCHEDULE_PAYLOAD_CACHE = (time.monotonic(), payload)
+                return payload
+        if attempt < _SCHEDULE_POST_RETRIES:
+            log.warning(
+                "Metallic schedule empty (attempt %s/%s), retrying",
+                attempt,
+                _SCHEDULE_POST_RETRIES,
+            )
+            time.sleep(1.5 * attempt)
 
-    if best is not None:
-        log.info("Metallic schedule fetched (%s)", _payload_stats(best))
-        return best
+    if _SCHEDULE_PAYLOAD_CACHE is not None and _payload_score(_SCHEDULE_PAYLOAD_CACHE[1]) > 0:
+        log.warning("Metallic schedule empty; using last good cached payload")
+        return _SCHEDULE_PAYLOAD_CACHE[1]
+
+    log.warning("Metallic schedule fetch returned no priced games")
     return None
