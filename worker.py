@@ -52,11 +52,13 @@ def main() -> None:
         try:
             with SessionLocal() as session:
                 payload = refresh_snapshot(session=session)
+            by_book = payload.get("offers_by_book") or {}
             log.info(
-                "Refreshed: offers=%s arbs=%s books=%s",
+                "Refreshed: offers=%s arbs=%s books=%s by_book=%s",
                 payload.get("offer_count"),
                 payload.get("arb_count"),
                 ",".join(payload.get("books") or []),
+                ",".join(f"{k}:{v}" for k, v in sorted(by_book.items())),
             )
         except Exception:
             log.exception("Scan failed")

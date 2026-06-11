@@ -24,7 +24,7 @@ services:
       - key: FALCON_PASSWORD
         sync: false
       - key: METALLIC_ENABLED
-        value: "false"
+        sync: false
       - key: METALLIC_USERNAME
         sync: false
       - key: METALLIC_PASSWORD
@@ -32,7 +32,7 @@ services:
       - key: METALLIC_SCHEDULE_POST_BODY
         sync: false
       - key: BUCKEYE2_ENABLED
-        value: "false"
+        sync: false
       - key: BUCKEYE2_USERNAME
         sync: false
       - key: BUCKEYE2_PASSWORD
@@ -68,7 +68,7 @@ services:
       - key: FALCON_PASSWORD
         sync: false
       - key: METALLIC_ENABLED
-        value: "false"
+        sync: false
       - key: METALLIC_USERNAME
         sync: false
       - key: METALLIC_PASSWORD
@@ -76,7 +76,7 @@ services:
       - key: METALLIC_SCHEDULE_POST_BODY
         sync: false
       - key: BUCKEYE2_ENABLED
-        value: "false"
+        sync: false
       - key: BUCKEYE2_USERNAME
         sync: false
       - key: BUCKEYE2_PASSWORD
