@@ -15,6 +15,7 @@ _TEAM_TOTAL_SUFFIX = re.compile(r"\s*\(TEAM TOTAL\)\s*$", re.I)
 @dataclass(frozen=True)
 class TeamTotalLine:
     team: str
+    opponent: str
     event_date: str
     line: float
     over_price: int | None
@@ -104,6 +105,18 @@ def _iter_json_nodes(value: Any) -> Iterable[Any]:
             yield from _iter_json_nodes(child)
 
 
+def _team_and_opponent(game: dict[str, Any]) -> tuple[str, str]:
+    htm_raw = _first_str(game, "htm")
+    vtm_raw = _first_str(game, "vtm")
+    htm = _strip_team_label(htm_raw)
+    vtm = _strip_team_label(vtm_raw)
+    if "(TEAM TOTAL)" in htm_raw.upper():
+        return htm, vtm
+    if "(TEAM TOTAL)" in vtm_raw.upper():
+        return vtm, htm
+    return "", ""
+
+
 def _line_from_game(game: dict[str, Any]) -> TeamTotalLine | None:
     label = _first_str(game, "htm", "vtm", "gdesc")
     if "(TEAM TOTAL)" not in label.upper():
@@ -118,11 +131,12 @@ def _line_from_game(game: dict[str, Any]) -> TeamTotalLine | None:
     over_p, under_p = _ou_prices(row)
     if line_pt is None or (over_p is None and under_p is None):
         return None
-    team = _strip_team_label(_first_str(game, "htm", "vtm"))
+    team, opponent = _team_and_opponent(game)
     if not team:
         return None
     return TeamTotalLine(
         team=team,
+        opponent=opponent,
         event_date=_gmdt_to_iso(_first_str(game, "gmdt")),
         line=line_pt,
         over_price=over_p,
@@ -155,9 +169,15 @@ def extract_team_totals_from_helper(
             line = _line_from_game(game)
             if not line:
                 continue
-            key = (team_norm(line.team), line.event_date, round(line.line, 2))
+            key = (
+                team_norm(line.team),
+                team_norm(line.opponent),
+                line.event_date,
+                round(line.line, 2),
+            )
             canonical = TeamTotalLine(
                 team=display_team_name(line.team),
+                opponent=display_team_name(line.opponent),
                 event_date=line.event_date,
                 line=line.line,
                 over_price=line.over_price,
@@ -183,6 +203,7 @@ def extract_team_totals_from_helper(
                 )
             found[key] = TeamTotalLine(
                 team=prev.team,
+                opponent=prev.opponent,
                 event_date=prev.event_date,
                 line=prev.line,
                 over_price=over,

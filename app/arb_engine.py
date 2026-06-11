@@ -22,6 +22,7 @@ class Offer:
     event_date: str
     event_label: str
     participant: str
+    matchup: tuple[str, str]
     line: float
     side: str
     american: int
@@ -48,22 +49,22 @@ def implied_prob_american(american: int) -> float:
     return b / (b + 100.0)
 
 
-def _group_key(offer: Offer) -> tuple[str, str, str, float]:
+def _group_key(offer: Offer) -> tuple[str, tuple[str, str], str, str, float]:
     if offer.market == "team_totals":
         subject = team_norm(offer.participant)
     else:
         subject = " ".join(offer.event_label.lower().split())
-    return (offer.event_date, subject, offer.market, round(offer.line, 2))
+    return (offer.event_date, offer.matchup, subject, offer.market, round(offer.line, 2))
 
 
-def _offer_identity_key(offer: Offer) -> tuple[str, str, str, str, float, str]:
-    event_date, subject, market, line = _group_key(offer)
-    return (offer.book, market, event_date, subject, line, offer.side)
+def _offer_identity_key(offer: Offer) -> tuple[str, str, tuple[str, str], str, float, str]:
+    event_date, matchup, subject, market, line = _group_key(offer)
+    return (offer.book, market, event_date, matchup, subject, line, offer.side)
 
 
 def dedupe_offers(offers: list[Offer]) -> list[Offer]:
     """One offer per book/market/line/side — keep best (highest) American odds."""
-    best: dict[tuple[str, str, str, str, float, str], Offer] = {}
+    best: dict[tuple[str, str, tuple[str, str], str, float, str], Offer] = {}
     for offer in offers:
         key = _offer_identity_key(offer)
         prev = best.get(key)
@@ -88,14 +89,14 @@ def _edge_pct(over_price: int, under_price: int) -> float:
 
 def find_cross_book_arbs(offers: list[Offer]) -> list[Arb]:
     offers = dedupe_offers(offers)
-    by_group: dict[tuple[str, str, str, float], list[Offer]] = {}
+    by_group: dict[tuple[str, tuple[str, str], str, str, float], list[Offer]] = {}
     for offer in offers:
         by_group.setdefault(_group_key(offer), []).append(offer)
 
     arbs: list[Arb] = []
-    seen: set[tuple[str, str, str, str, float, str, str]] = set()
+    seen: set[tuple[str, tuple[str, str], str, str, float, str, str]] = set()
 
-    for (event_date, subject, market, line), group in by_group.items():
+    for (event_date, matchup, subject, market, line), group in by_group.items():
         overs = _best_offer_per_book([o for o in group if o.side == "over"])
         unders = _best_offer_per_book([o for o in group if o.side == "under"])
         if not overs or not unders:
@@ -105,7 +106,12 @@ def find_cross_book_arbs(offers: list[Offer]) -> list[Arb]:
 
         if market == "team_totals":
             label = team_total_label(subject, line)
-            event_label = display_team_name(subject)
+            if matchup[0] and matchup[1] and matchup[0] != matchup[1]:
+                event_label = (
+                    f"{display_team_name(matchup[0])} vs {display_team_name(matchup[1])}"
+                )
+            else:
+                event_label = display_team_name(subject)
         else:
             label = next((o.label for o in group if o.label), "")
             event_label = next((o.event_label for o in group if o.event_label), "")
@@ -116,7 +122,7 @@ def find_cross_book_arbs(offers: list[Offer]) -> list[Arb]:
             edge = _edge_pct(over_o.american, under_o.american)
             if edge < MIN_EDGE_PCT - 1e-9:
                 continue
-            pair = (event_date, subject, market, line, over_o.book, under_o.book)
+            pair = (event_date, matchup, subject, market, line, over_o.book, under_o.book)
             if pair in seen:
                 continue
             seen.add(pair)

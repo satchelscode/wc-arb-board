@@ -23,6 +23,7 @@ from app.config import (
     ODDS_API_REGIONS,
     ODDS_API_SPORT_KEY,
 )
+from app.events import matchup_key, matchup_label, opponent_in_event
 from app.models import ArbBoardSnapshot, utc_now
 from app.names import team_norm, team_total_label
 from app.odds_client import fetch_events_for_sport
@@ -51,6 +52,8 @@ def _team_lines_to_offers(lines: list[TeamTotalLine], *, book: str) -> list[Offe
     for line in lines:
         pt = round(line.line, 2)
         label = team_total_label(line.team, pt)
+        matchup = matchup_key(line.team, line.opponent)
+        fixture = matchup_label(line.team, line.opponent)
         if line.over_price is not None:
             offers.append(
                 Offer(
@@ -58,8 +61,9 @@ def _team_lines_to_offers(lines: list[TeamTotalLine], *, book: str) -> list[Offe
                     market="team_totals",
                     label=label,
                     event_date=line.event_date,
-                    event_label=line.team,
+                    event_label=fixture,
                     participant=line.team,
+                    matchup=matchup,
                     line=pt,
                     side="over",
                     american=int(line.over_price),
@@ -72,8 +76,9 @@ def _team_lines_to_offers(lines: list[TeamTotalLine], *, book: str) -> list[Offe
                     market="team_totals",
                     label=label,
                     event_date=line.event_date,
-                    event_label=line.team,
+                    event_label=fixture,
                     participant=line.team,
+                    matchup=matchup,
                     line=pt,
                     side="under",
                     american=int(line.under_price),
@@ -96,7 +101,7 @@ def collect_ace_offers() -> list[Offer]:
 
 
 def _put_offer(
-    bucket: dict[tuple[str, str, str, str, float, str], Offer],
+    bucket: dict[tuple[str, str, str, tuple[str, str], str, float, str], Offer],
     *,
     book: str,
     market: str,
@@ -104,6 +109,7 @@ def _put_offer(
     event_date: str,
     event_label: str,
     participant: str,
+    matchup: tuple[str, str],
     line: float,
     side: str,
     american: int,
@@ -113,7 +119,7 @@ def _put_offer(
         label = team_total_label(participant, line)
     else:
         subject = " ".join(event_label.lower().split())
-    key = (book, market, event_date, subject, round(line, 2), side)
+    key = (book, market, event_date, matchup, subject, round(line, 2), side)
     prev = bucket.get(key)
     if prev is None or american > prev.american:
         bucket[key] = Offer(
@@ -123,6 +129,7 @@ def _put_offer(
             event_date=event_date,
             event_label=event_label,
             participant=participant,
+            matchup=matchup,
             line=round(line, 2),
             side=side,
             american=american,
@@ -135,7 +142,7 @@ def collect_odds_api_offers() -> list[Offer]:
     if not ODDS_API_KEY or not books or not markets:
         return []
 
-    bucket: dict[tuple[str, str, float, str], Offer] = {}
+    bucket: dict[tuple[str, str, str, tuple[str, str], str, float, str], Offer] = {}
     events = fetch_events_for_sport(ODDS_API_SPORT_KEY)[: max(1, ODDS_API_MAX_EVENTS)]
     markets_param = ",".join(markets)
     books_param = ",".join(books)
@@ -148,6 +155,7 @@ def collect_odds_api_offers() -> list[Offer]:
         away = str(event.get("away_team") or "").strip()
         event_label = f"{away} @ {home}" if away and home else ""
         event_date = _commence_to_et_date(event.get("commence_time"))
+        game_matchup = matchup_key(away, home)
         url = f"{ODDS_API_BASE}/sports/{ODDS_API_SPORT_KEY}/events/{event_id}/odds"
         params = {
             "apiKey": ODDS_API_KEY,
@@ -197,14 +205,24 @@ def collect_odds_api_offers() -> list[Offer]:
                             continue
                         if point is None:
                             continue
+                        opponent = opponent_in_event(home=home, away=away, team=team)
+                        team_matchup = (
+                            matchup_key(team, opponent) if opponent else game_matchup
+                        )
+                        fixture = (
+                            matchup_label(team, opponent)
+                            if opponent
+                            else event_label
+                        )
                         _put_offer(
                             bucket,
                             book=book,
                             market=mk,
                             label=f"{team} team total {point:g}",
                             event_date=event_date,
-                            event_label=event_label,
+                            event_label=fixture,
                             participant=team,
+                            matchup=team_matchup,
                             line=point,
                             side=side,
                             american=american,
@@ -224,6 +242,7 @@ def collect_odds_api_offers() -> list[Offer]:
                             event_date=event_date,
                             event_label=event_label,
                             participant="game",
+                            matchup=game_matchup,
                             line=point,
                             side=side,
                             american=american,
@@ -231,40 +250,9 @@ def collect_odds_api_offers() -> list[Offer]:
     return list(bucket.values())
 
 
-def _align_ace_dates(ace: list[Offer], api: list[Offer]) -> list[Offer]:
-    if not ace or not api:
-        return ace
-    dates: dict[tuple[str, float], set[str]] = {}
-    for o in api:
-        if o.market != "team_totals":
-            continue
-        dates.setdefault((team_norm(o.participant), o.line), set()).add(o.event_date)
-    aligned: list[Offer] = []
-    for o in ace:
-        dset = dates.get((team_norm(o.participant), o.line))
-        if dset:
-            aligned.append(
-                Offer(
-                    book=o.book,
-                    market=o.market,
-                    label=o.label,
-                    event_date=sorted(dset)[0],
-                    event_label=o.event_label,
-                    participant=o.participant,
-                    line=o.line,
-                    side=o.side,
-                    american=o.american,
-                )
-            )
-        else:
-            aligned.append(o)
-    return aligned
-
-
 def refresh_snapshot(*, session) -> dict[str, Any]:
     ace = collect_ace_offers()
     api = collect_odds_api_offers()
-    ace = _align_ace_dates(ace, api)
     all_offers = ace + api
     arbs = find_cross_book_arbs(all_offers)
 

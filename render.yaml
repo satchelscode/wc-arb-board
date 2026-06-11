@@ -21,6 +21,18 @@ services:
         sync: false
       - key: FALCON_PASSWORD
         sync: false
+      - key: METALLIC_ENABLED
+        value: "false"
+      - key: METALLIC_LOGIN_URL
+        sync: false
+      - key: METALLIC_STRAIGHT_URL
+        sync: false
+      - key: METALLIC_WC_HELPER_URL
+        sync: false
+      - key: METALLIC_USERNAME
+        sync: false
+      - key: METALLIC_PASSWORD
+        sync: false
 
   - type: worker
     name: wc-arb-board-worker
@@ -42,6 +54,18 @@ services:
       - key: FALCON_USERNAME
         sync: false
       - key: FALCON_PASSWORD
+        sync: false
+      - key: METALLIC_ENABLED
+        value: "false"
+      - key: METALLIC_LOGIN_URL
+        sync: false
+      - key: METALLIC_STRAIGHT_URL
+        sync: false
+      - key: METALLIC_WC_HELPER_URL
+        sync: false
+      - key: METALLIC_USERNAME
+        sync: false
+      - key: METALLIC_PASSWORD
         sync: false
       - key: ODDS_API_BOOKS
         value: "pinnacle,draftkings,fanduel"

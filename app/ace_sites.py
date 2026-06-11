@@ -24,6 +24,16 @@ from app.config import (
     FALCON_USERNAME,
     FALCON_USERNAME_FIELD,
     FALCON_WC_HELPER_URL,
+    METALLIC_COOKIE,
+    METALLIC_ENABLED,
+    METALLIC_LOGIN_EXTRA_FORM_JSON,
+    METALLIC_LOGIN_URL,
+    METALLIC_PASSWORD,
+    METALLIC_PASSWORD_FIELD,
+    METALLIC_STRAIGHT_URL,
+    METALLIC_USERNAME,
+    METALLIC_USERNAME_FIELD,
+    METALLIC_WC_HELPER_URL,
 )
 
 
@@ -56,16 +66,52 @@ def _origin_from_url(url: str, fallback: str) -> str:
     return fallback
 
 
+def _build_site(
+    *,
+    key: str,
+    label: str,
+    enabled: bool,
+    default_origin: str,
+    login_url: str,
+    straight_url: str,
+    wc_helper_url: str,
+    cookie: str,
+    username: str,
+    password: str,
+    username_field: str,
+    password_field: str,
+    login_extra_json: str,
+) -> AceSite | None:
+    if not enabled:
+        return None
+    origin = _origin_from_url(straight_url or login_url, default_origin)
+    site = AceSite(
+        key=key,
+        label=label,
+        origin=origin,
+        login_url=login_url or f"{origin}/",
+        straight_url=straight_url or f"{origin}/wager/CreateSports.aspx?WT=0",
+        wc_helper_url=wc_helper_url,
+        cookie=cookie,
+        username=username,
+        password=password,
+        username_field=username_field,
+        password_field=password_field,
+        login_extra_json=login_extra_json,
+    )
+    return site if site.has_auth() else None
+
+
 def configured_ace_sites() -> list[AceSite]:
     sites: list[AceSite] = []
-    if FALCON_ENABLED:
-        origin = _origin_from_url(FALCON_STRAIGHT_URL or FALCON_LOGIN_URL, "https://backend.falcon.ag")
-        site = AceSite(
+    for site in (
+        _build_site(
             key="falcon",
             label="Falcon",
-            origin=origin,
-            login_url=FALCON_LOGIN_URL or f"{origin}/",
-            straight_url=FALCON_STRAIGHT_URL or f"{origin}/wager/CreateSports.aspx?WT=0",
+            enabled=FALCON_ENABLED,
+            default_origin="https://backend.falcon.ag",
+            login_url=FALCON_LOGIN_URL,
+            straight_url=FALCON_STRAIGHT_URL,
             wc_helper_url=FALCON_WC_HELPER_URL,
             cookie=FALCON_COOKIE,
             username=FALCON_USERNAME,
@@ -73,20 +119,29 @@ def configured_ace_sites() -> list[AceSite]:
             username_field=FALCON_USERNAME_FIELD,
             password_field=FALCON_PASSWORD_FIELD,
             login_extra_json=FALCON_LOGIN_EXTRA_FORM_JSON,
-        )
-        if site.has_auth():
-            sites.append(site)
-    if BETVEGAS23_ENABLED:
-        origin = _origin_from_url(
-            BETVEGAS23_STRAIGHT_URL or BETVEGAS23_LOGIN_URL,
-            "https://backend.betvegas23.com",
-        )
-        site = AceSite(
+        ),
+        _build_site(
+            key="metallic",
+            label="Metallic",
+            enabled=METALLIC_ENABLED,
+            default_origin="https://backend.metallic.ag",
+            login_url=METALLIC_LOGIN_URL,
+            straight_url=METALLIC_STRAIGHT_URL,
+            wc_helper_url=METALLIC_WC_HELPER_URL,
+            cookie=METALLIC_COOKIE,
+            username=METALLIC_USERNAME,
+            password=METALLIC_PASSWORD,
+            username_field=METALLIC_USERNAME_FIELD,
+            password_field=METALLIC_PASSWORD_FIELD,
+            login_extra_json=METALLIC_LOGIN_EXTRA_FORM_JSON,
+        ),
+        _build_site(
             key="betvegas23",
             label="BetVegas23",
-            origin=origin,
-            login_url=BETVEGAS23_LOGIN_URL or f"{origin}/",
-            straight_url=BETVEGAS23_STRAIGHT_URL or f"{origin}/wager/CreateSports.aspx?WT=0",
+            enabled=BETVEGAS23_ENABLED,
+            default_origin="https://backend.betvegas23.com",
+            login_url=BETVEGAS23_LOGIN_URL,
+            straight_url=BETVEGAS23_STRAIGHT_URL,
             wc_helper_url=BETVEGAS23_WC_HELPER_URL,
             cookie=BETVEGAS23_COOKIE,
             username=BETVEGAS23_USERNAME,
@@ -94,7 +149,8 @@ def configured_ace_sites() -> list[AceSite]:
             username_field=BETVEGAS23_USERNAME_FIELD,
             password_field=BETVEGAS23_PASSWORD_FIELD,
             login_extra_json=BETVEGAS23_LOGIN_EXTRA_FORM_JSON,
-        )
-        if site.has_auth():
+        ),
+    ):
+        if site is not None:
             sites.append(site)
     return sites
