@@ -24,7 +24,7 @@ from app.config import (
     ODDS_API_SPORT_KEY,
 )
 from app.models import ArbBoardSnapshot, utc_now
-from app.names import team_norm
+from app.names import team_norm, team_total_label
 from app.odds_client import fetch_events_for_sport
 
 log = logging.getLogger(__name__)
@@ -49,8 +49,8 @@ def _commence_to_et_date(commence: str | None) -> str:
 def _team_lines_to_offers(lines: list[TeamTotalLine], *, book: str) -> list[Offer]:
     offers: list[Offer] = []
     for line in lines:
-        label = f"{line.team} team total {line.line:g}"
         pt = round(line.line, 2)
+        label = team_total_label(line.team, pt)
         if line.over_price is not None:
             offers.append(
                 Offer(
@@ -96,7 +96,7 @@ def collect_ace_offers() -> list[Offer]:
 
 
 def _put_offer(
-    bucket: dict[tuple[str, str, float, str], Offer],
+    bucket: dict[tuple[str, str, str, str, float, str], Offer],
     *,
     book: str,
     market: str,
@@ -108,17 +108,25 @@ def _put_offer(
     side: str,
     american: int,
 ) -> None:
-    bucket[(book, market, round(line, 2), side)] = Offer(
-        book=book,
-        market=market,
-        label=label,
-        event_date=event_date,
-        event_label=event_label,
-        participant=participant,
-        line=round(line, 2),
-        side=side,
-        american=american,
-    )
+    if market == "team_totals":
+        subject = team_norm(participant)
+        label = team_total_label(participant, line)
+    else:
+        subject = " ".join(event_label.lower().split())
+    key = (book, market, event_date, subject, round(line, 2), side)
+    prev = bucket.get(key)
+    if prev is None or american > prev.american:
+        bucket[key] = Offer(
+            book=book,
+            market=market,
+            label=label,
+            event_date=event_date,
+            event_label=event_label,
+            participant=participant,
+            line=round(line, 2),
+            side=side,
+            american=american,
+        )
 
 
 def collect_odds_api_offers() -> list[Offer]:

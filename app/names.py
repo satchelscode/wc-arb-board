@@ -40,6 +40,18 @@ def team_norm(name: str) -> str:
     return normalize_name(strip_team_total_suffix(name))
 
 
+def display_team_name(name: str) -> str:
+    """Canonical display casing for team totals (e.g. jordan -> Jordan)."""
+    norm = team_norm(name)
+    if not norm:
+        return (name or "").strip()
+    return " ".join(part.capitalize() for part in norm.split())
+
+
+def team_total_label(team: str, line: float) -> str:
+    return f"{display_team_name(team)} team total {line:g}"
+
+
 def teams_match(a: str, b: str) -> bool:
     na, nb = team_norm(a), team_norm(b)
     if not na or not nb:

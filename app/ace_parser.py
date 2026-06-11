@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from app.names import display_team_name, team_norm
+
 _TEAM_TOTAL_SUFFIX = re.compile(r"\s*\(TEAM TOTAL\)\s*$", re.I)
 
 
@@ -137,8 +139,7 @@ def extract_team_totals_from_helper(
         payload = json.loads(html)
     except json.JSONDecodeError:
         return []
-    found: list[TeamTotalLine] = []
-    seen: set[tuple[str, str, float]] = set()
+    found: dict[tuple[str, str, float], TeamTotalLine] = {}
     for node in _iter_json_nodes(payload):
         if not isinstance(node, dict):
             continue
@@ -154,9 +155,37 @@ def extract_team_totals_from_helper(
             line = _line_from_game(game)
             if not line:
                 continue
-            key = (line.team.upper(), line.event_date, round(line.line, 2))
-            if key in seen:
+            key = (team_norm(line.team), line.event_date, round(line.line, 2))
+            canonical = TeamTotalLine(
+                team=display_team_name(line.team),
+                event_date=line.event_date,
+                line=line.line,
+                over_price=line.over_price,
+                under_price=line.under_price,
+            )
+            prev = found.get(key)
+            if prev is None:
+                found[key] = canonical
                 continue
-            seen.add(key)
-            found.append(line)
-    return found
+            over = prev.over_price
+            if canonical.over_price is not None:
+                over = (
+                    canonical.over_price
+                    if over is None
+                    else max(over, canonical.over_price)
+                )
+            under = prev.under_price
+            if canonical.under_price is not None:
+                under = (
+                    canonical.under_price
+                    if under is None
+                    else max(under, canonical.under_price)
+                )
+            found[key] = TeamTotalLine(
+                team=prev.team,
+                event_date=prev.event_date,
+                line=prev.line,
+                over_price=over,
+                under_price=under,
+            )
+    return list(found.values())
