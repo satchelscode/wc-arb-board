@@ -14,6 +14,7 @@ from app.config import (
     BETVEGAS23_USERNAME,
     BETVEGAS23_USERNAME_FIELD,
     BETVEGAS23_WC_HELPER_URL,
+    BETVEGAS23_WC_HELPER_URLS,
     FALCON_COOKIE,
     FALCON_ENABLED,
     FALCON_LOGIN_EXTRA_FORM_JSON,
@@ -24,6 +25,7 @@ from app.config import (
     FALCON_USERNAME,
     FALCON_USERNAME_FIELD,
     FALCON_WC_HELPER_URL,
+    FALCON_WC_HELPER_URLS,
 )
 
 
@@ -35,6 +37,7 @@ class AceSite:
     login_url: str
     straight_url: str
     wc_helper_url: str
+    wc_helper_urls: tuple[str, ...]
     cookie: str
     username: str
     password: str
@@ -47,6 +50,20 @@ class AceSite:
             (self.cookie or "").strip()
             or ((self.username or "").strip() and (self.password or "").strip())
         )
+
+
+def _helper_urls(primary: str, extra_csv: str) -> tuple[str, ...]:
+    urls: list[str] = []
+    seen: set[str] = set()
+    for raw in (extra_csv or "").split(","):
+        u = raw.strip()
+        if u and u not in seen:
+            seen.add(u)
+            urls.append(u)
+    primary = (primary or "").strip()
+    if primary and primary not in seen:
+        urls.insert(0, primary)
+    return tuple(urls)
 
 
 def _origin_from_url(url: str, fallback: str) -> str:
@@ -65,6 +82,7 @@ def _build_site(
     login_url: str,
     straight_url: str,
     wc_helper_url: str,
+    wc_helper_urls_csv: str,
     cookie: str,
     username: str,
     password: str,
@@ -82,6 +100,7 @@ def _build_site(
         login_url=login_url or f"{origin}/",
         straight_url=straight_url or f"{origin}/wager/CreateSports.aspx?WT=0",
         wc_helper_url=wc_helper_url,
+        wc_helper_urls=_helper_urls(wc_helper_url, wc_helper_urls_csv),
         cookie=cookie,
         username=username,
         password=password,
@@ -103,6 +122,7 @@ def configured_ace_sites() -> list[AceSite]:
             login_url=FALCON_LOGIN_URL,
             straight_url=FALCON_STRAIGHT_URL,
             wc_helper_url=FALCON_WC_HELPER_URL,
+            wc_helper_urls_csv=FALCON_WC_HELPER_URLS,
             cookie=FALCON_COOKIE,
             username=FALCON_USERNAME,
             password=FALCON_PASSWORD,
@@ -118,6 +138,7 @@ def configured_ace_sites() -> list[AceSite]:
             login_url=BETVEGAS23_LOGIN_URL,
             straight_url=BETVEGAS23_STRAIGHT_URL,
             wc_helper_url=BETVEGAS23_WC_HELPER_URL,
+            wc_helper_urls_csv=BETVEGAS23_WC_HELPER_URLS,
             cookie=BETVEGAS23_COOKIE,
             username=BETVEGAS23_USERNAME,
             password=BETVEGAS23_PASSWORD,

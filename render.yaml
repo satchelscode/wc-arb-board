@@ -43,6 +43,10 @@ services:
         sync: false
       - key: BUCKEYE2_LOGIN_URL
         sync: false
+      - key: ODDS_API_PROP_MARKETS
+        value: "player_goal_scorer_anytime,player_first_goal_scorer,alternate_spreads,alternate_totals"
+      - key: KALSHI_ENABLED
+        sync: false
 
   - type: worker
     name: wc-arb-board-worker
@@ -90,7 +94,13 @@ services:
       - key: ODDS_API_BOOKS
         value: "pinnacle,draftkings,fanduel,betonlineag,bookmaker"
       - key: ODDS_API_MARKETS
-        value: "team_totals,totals"
+        value: "h2h,spreads,totals,team_totals"
+      - key: ODDS_API_PROP_MARKETS
+        value: "player_goal_scorer_anytime,player_first_goal_scorer,alternate_spreads,alternate_totals"
+      - key: KALSHI_ENABLED
+        sync: false
+      - key: KALSHI_SERIES_TICKERS
+        value: "KXWCGAME,KXWCTOTAL,KXWCTEAMTOTAL,KXWCSPREAD,KXWCGOAL"
 
 databases:
   - name: wc-arb-db

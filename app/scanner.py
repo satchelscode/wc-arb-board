@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from app.ace_client import fetch_wc_helper_page
-from app.ace_parser import TeamTotalLine, extract_team_totals_from_helper
+from app.ace_client import fetch_wc_helper_pages
+from app.ace_parser import AceOffer, TeamTotalLine, extract_all_offers_from_helper
 from app.ace_sites import configured_ace_sites
 from app.arb_engine import Offer, arb_to_dict, find_cross_book_arbs
 from app.books import normalize_book_key
@@ -19,15 +19,19 @@ from app.buckeye2_client import fetch_buckeye2_lines
 from app.buckeye2_parser import BuckeyeLine, extract_wc_lines_from_buckeye2
 from app.config import (
     BUCKEYE2_ENABLED,
+    KALSHI_ENABLED,
     METALLIC_ENABLED,
     ODDS_API_BASE,
     ODDS_API_BOOKS,
     ODDS_API_KEY,
     ODDS_API_MARKETS,
     ODDS_API_MAX_EVENTS,
+    ODDS_API_PROP_MARKETS,
     ODDS_API_REGIONS,
     ODDS_API_SPORT_KEY,
 )
+from app.kalshi_client import fetch_all_kalshi_wc_markets
+from app.kalshi_parser import KalshiOffer, extract_offers_from_kalshi
 from app.metallic_client import fetch_metallic_schedule
 from app.metallic_parser import (
     MetallicLine,
@@ -98,7 +102,18 @@ def _team_lines_to_offers(lines: list[TeamTotalLine], *, book: str) -> list[Offe
     return offers
 
 
-def _metallic_offers_to_scanner(offers: list[MetallicOffer]) -> list[Offer]:
+def _offers_by_market(offers: list[Offer]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for offer in offers:
+        counts[offer.market] = counts.get(offer.market, 0) + 1
+    return counts
+
+
+def _parsed_offers_to_scanner(
+    offers: list[MetallicOffer] | list[AceOffer] | list[KalshiOffer],
+    *,
+    book: str,
+) -> list[Offer]:
     out: list[Offer] = []
     for mo in offers:
         if mo.opponent:
@@ -133,7 +148,7 @@ def _metallic_offers_to_scanner(offers: list[MetallicOffer]) -> list[Offer]:
 
         out.append(
             Offer(
-                book="metallic",
+                book=book,
                 market=mo.market,
                 label=label,
                 event_date=mo.event_date,
@@ -204,13 +219,11 @@ def collect_metallic_offers() -> list[Offer]:
     if payload is None:
         return []
     parsed = extract_all_offers_from_schedule(payload)
-    offers = _metallic_offers_to_scanner(parsed)
+    offers = _parsed_offers_to_scanner(parsed, book="metallic")
     if not offers:
         log.info("Metallic: 0 offers (check schedule POST body / sport menu)")
     else:
-        by_market: dict[str, int] = {}
-        for offer in offers:
-            by_market[offer.market] = by_market.get(offer.market, 0) + 1
+        by_market = _offers_by_market(offers)
         log.info(
             "Metallic: %s offers (%s)",
             len(offers),
@@ -234,14 +247,55 @@ def collect_buckeye2_offers() -> list[Offer]:
 def collect_ace_offers() -> list[Offer]:
     offers: list[Offer] = []
     for site in configured_ace_sites():
-        page = fetch_wc_helper_page(site)
-        if not page:
+        pages = fetch_wc_helper_pages(site)
+        if not pages:
             continue
-        html, _url = page
-        lines = extract_team_totals_from_helper(html)
-        offers.extend(_team_lines_to_offers(lines, book=site.key))
-        log.info("%s: %s team-total lines", site.label, len(lines))
+        parsed: list[AceOffer] = []
+        for html, _url in pages:
+            parsed.extend(extract_all_offers_from_helper(html))
+        site_offers = _parsed_offers_to_scanner(parsed, book=site.key)
+        offers.extend(site_offers)
+        by_market = _offers_by_market(site_offers)
+        log.info(
+            "%s: %s offers from %s helper page(s) (%s)",
+            site.label,
+            len(site_offers),
+            len(pages),
+            ", ".join(f"{k}={v}" for k, v in sorted(by_market.items())),
+        )
     return offers
+
+
+def collect_kalshi_offers() -> list[Offer]:
+    if not KALSHI_ENABLED:
+        return []
+    markets = fetch_all_kalshi_wc_markets()
+    if not markets:
+        return []
+    parsed = extract_offers_from_kalshi(markets)
+    offers = _parsed_offers_to_scanner(parsed, book="kalshi")
+    by_market = _offers_by_market(offers)
+    log.info(
+        "Kalshi: %s offers (%s)",
+        len(offers),
+        ", ".join(f"{k}={v}" for k, v in sorted(by_market.items())),
+    )
+    return offers
+
+
+def _offer_subject(
+    *,
+    market: str,
+    participant: str,
+    event_label: str,
+    prop_key: str = "",
+) -> str:
+    if market in ("team_totals", "spreads", "h2h"):
+        return team_norm(participant)
+    if market == "props":
+        base = team_norm(participant) or participant.lower()
+        return f"{base}:{prop_key}" if prop_key else base
+    return " ".join(event_label.lower().split())
 
 
 def _put_offer(
@@ -257,12 +311,16 @@ def _put_offer(
     line: float,
     side: str,
     american: int,
+    prop_key: str = "",
 ) -> None:
     if market == "team_totals":
-        subject = team_norm(participant)
         label = team_total_label(participant, line)
-    else:
-        subject = " ".join(event_label.lower().split())
+    subject = _offer_subject(
+        market=market,
+        participant=participant,
+        event_label=event_label,
+        prop_key=prop_key,
+    )
     key = (book, market, event_date, matchup, subject, round(line, 2), side)
     prev = bucket.get(key)
     if prev is None or american > prev.american:
@@ -280,16 +338,32 @@ def _put_offer(
         )
 
 
+def _odds_api_internal_market(api_key: str) -> tuple[str, str]:
+    mk = api_key.strip().lower()
+    if mk in ("alternate_spreads",):
+        return "spreads", mk
+    if mk in ("alternate_totals", "alternate_team_totals"):
+        if "team" in mk:
+            return "team_totals", mk
+        return "totals", mk
+    if mk.startswith("player_"):
+        return "props", mk
+    return mk, mk
+
+
 def collect_odds_api_offers() -> list[Offer]:
     books = _parse_csv(ODDS_API_BOOKS)
-    markets = _parse_csv(ODDS_API_MARKETS)
-    if not ODDS_API_KEY or not books or not markets:
+    featured = _parse_csv(ODDS_API_MARKETS)
+    prop_keys = _parse_csv(ODDS_API_PROP_MARKETS)
+    requested = tuple(dict.fromkeys(featured + prop_keys))
+    if not ODDS_API_KEY or not books or not requested:
         return []
 
     bucket: dict[tuple[str, str, str, tuple[str, str], str, float, str], Offer] = {}
     events = fetch_events_for_sport(ODDS_API_SPORT_KEY)[: max(1, ODDS_API_MAX_EVENTS)]
-    markets_param = ",".join(markets)
+    markets_param = ",".join(requested)
     books_param = ",".join(books)
+    allowed = set(requested)
 
     for event in events:
         event_id = event.get("id")
@@ -324,8 +398,9 @@ def collect_odds_api_offers() -> list[Offer]:
                 continue
             for market in bookmaker.get("markets", []):
                 mk = str(market.get("key") or "").strip().lower()
-                if mk not in markets:
+                if mk not in allowed:
                     continue
+                internal_market, prop_key = _odds_api_internal_market(mk)
                 for outcome in market.get("outcomes", []):
                     if not isinstance(outcome, dict):
                         continue
@@ -340,7 +415,7 @@ def collect_odds_api_offers() -> list[Offer]:
                     if isinstance(point_raw, (int, float)) and not isinstance(point_raw, bool):
                         point = float(point_raw)
 
-                    if mk == "team_totals":
+                    if internal_market == "team_totals":
                         if name_field.lower() in ("over", "under"):
                             side, team = name_field.lower(), desc_field
                         elif desc_field.lower() in ("over", "under"):
@@ -361,7 +436,7 @@ def collect_odds_api_offers() -> list[Offer]:
                         _put_offer(
                             bucket,
                             book=book,
-                            market=mk,
+                            market=internal_market,
                             label=f"{team} team total {point:g}",
                             event_date=event_date,
                             event_label=fixture,
@@ -370,8 +445,9 @@ def collect_odds_api_offers() -> list[Offer]:
                             line=point,
                             side=side,
                             american=american,
+                            prop_key=prop_key,
                         )
-                    elif mk == "totals" and point is not None:
+                    elif internal_market == "totals" and point is not None:
                         if name_field.lower() in ("over", "under"):
                             side = name_field.lower()
                         elif desc_field.lower() in ("over", "under"):
@@ -381,7 +457,7 @@ def collect_odds_api_offers() -> list[Offer]:
                         _put_offer(
                             bucket,
                             book=book,
-                            market=mk,
+                            market=internal_market,
                             label=f"{event_label} total {point:g}",
                             event_date=event_date,
                             event_label=event_label,
@@ -390,8 +466,119 @@ def collect_odds_api_offers() -> list[Offer]:
                             line=point,
                             side=side,
                             american=american,
+                            prop_key=prop_key,
                         )
-    return list(bucket.values())
+                    elif internal_market == "spreads" and point is not None:
+                        team = name_field or desc_field
+                        if not team:
+                            continue
+                        opponent = opponent_in_event(home=home, away=away, team=team)
+                        team_matchup = (
+                            matchup_key(team, opponent) if opponent else game_matchup
+                        )
+                        fixture = (
+                            matchup_label(team, opponent)
+                            if opponent
+                            else event_label
+                        )
+                        _put_offer(
+                            bucket,
+                            book=book,
+                            market=internal_market,
+                            label=f"{team} {point:+g}",
+                            event_date=event_date,
+                            event_label=fixture,
+                            participant=team,
+                            matchup=team_matchup,
+                            line=point,
+                            side="spread",
+                            american=american,
+                            prop_key=prop_key,
+                        )
+                    elif internal_market == "h2h":
+                        participant = name_field or desc_field
+                        if not participant:
+                            continue
+                        _put_offer(
+                            bucket,
+                            book=book,
+                            market=internal_market,
+                            label=f"{event_label} {participant}",
+                            event_date=event_date,
+                            event_label=event_label,
+                            participant=participant,
+                            matchup=game_matchup,
+                            line=0.0,
+                            side="ml",
+                            american=american,
+                        )
+                    elif internal_market == "props":
+                        low_name = name_field.lower()
+                        low_desc = desc_field.lower()
+                        if low_name in ("over", "under"):
+                            side, player = low_name, desc_field
+                            if point is None:
+                                continue
+                            label = f"{prop_key.replace('_', ' ')} — {player} {point:g}"
+                            _put_offer(
+                                bucket,
+                                book=book,
+                                market=internal_market,
+                                label=label,
+                                event_date=event_date,
+                                event_label=event_label,
+                                participant=player,
+                                matchup=game_matchup,
+                                line=point,
+                                side=side,
+                                american=american,
+                                prop_key=prop_key,
+                            )
+                        elif low_desc in ("over", "under"):
+                            side, player = low_desc, name_field
+                            if point is None:
+                                continue
+                            label = f"{prop_key.replace('_', ' ')} — {player} {point:g}"
+                            _put_offer(
+                                bucket,
+                                book=book,
+                                market=internal_market,
+                                label=label,
+                                event_date=event_date,
+                                event_label=event_label,
+                                participant=player,
+                                matchup=game_matchup,
+                                line=point,
+                                side=side,
+                                american=american,
+                                prop_key=prop_key,
+                            )
+                        elif low_name in ("yes", "no"):
+                            player = desc_field or name_field
+                            label = f"{prop_key.replace('_', ' ')} — {player}"
+                            _put_offer(
+                                bucket,
+                                book=book,
+                                market=internal_market,
+                                label=label,
+                                event_date=event_date,
+                                event_label=event_label,
+                                participant=player,
+                                matchup=game_matchup,
+                                line=0.0,
+                                side=low_name,
+                                american=american,
+                                prop_key=prop_key,
+                            )
+    offers = list(bucket.values())
+    if offers:
+        by_market = _offers_by_market(offers)
+        log.info(
+            "Odds API: %s offers (%s)",
+            len(offers),
+            ", ".join(f"{k}={v}" for k, v in sorted(by_market.items())),
+        )
+    return offers
 
 
 def _normalize_snapshot_books(payload: dict[str, Any]) -> dict[str, Any]:
@@ -418,15 +605,13 @@ def refresh_snapshot(*, session) -> dict[str, Any]:
     ace = collect_ace_offers()
     metallic = collect_metallic_offers()
     buckeye2 = collect_buckeye2_offers()
+    kalshi = collect_kalshi_offers()
     api = collect_odds_api_offers()
-    all_offers = ace + metallic + buckeye2 + api
+    all_offers = ace + metallic + buckeye2 + kalshi + api
     arbs = find_cross_book_arbs(all_offers)
 
     books = sorted({o.book for o in all_offers})
     by_book = {b: sum(1 for o in all_offers if o.book == b) for b in books}
-    metallic_by_market: dict[str, int] = {}
-    for offer in metallic:
-        metallic_by_market[offer.market] = metallic_by_market.get(offer.market, 0) + 1
     scanned_at = utc_now()
     payload = _normalize_snapshot_books(
         {
@@ -436,7 +621,11 @@ def refresh_snapshot(*, session) -> dict[str, Any]:
             "arb_count": len(arbs),
             "books": books,
             "offers_by_book": by_book,
-            "metallic_by_market": metallic_by_market,
+            "offers_by_market": _offers_by_market(all_offers),
+            "metallic_by_market": _offers_by_market(metallic),
+            "ace_by_market": _offers_by_market(ace),
+            "kalshi_by_market": _offers_by_market(kalshi),
+            "odds_api_by_market": _offers_by_market(api),
             "arbs": [arb_to_dict(a) for a in arbs],
         }
     )

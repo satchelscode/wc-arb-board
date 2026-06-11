@@ -13,7 +13,14 @@ ODDS_API_BOOKS = os.getenv(
     "pinnacle,draftkings,fanduel,betonlineag,bookmaker",
 ).strip()
 ODDS_API_REGIONS = os.getenv("ODDS_API_REGIONS", "us,eu").strip()
-ODDS_API_MARKETS = os.getenv("ODDS_API_MARKETS", "team_totals,totals").strip()
+ODDS_API_MARKETS = os.getenv(
+    "ODDS_API_MARKETS",
+    "h2h,spreads,totals,team_totals",
+).strip()
+ODDS_API_PROP_MARKETS = os.getenv(
+    "ODDS_API_PROP_MARKETS",
+    "player_goal_scorer_anytime,player_first_goal_scorer,alternate_spreads,alternate_totals",
+).strip()
 ODDS_API_MAX_EVENTS = int(os.getenv("ODDS_API_MAX_EVENTS", "80"))
 MIN_EDGE_PCT = float(os.getenv("MIN_EDGE_PCT", "0.01"))
 
@@ -30,6 +37,7 @@ FALCON_WC_HELPER_URL = os.getenv(
     "FALCON_WC_HELPER_URL",
     "https://backend.falcon.ag/wager/NewScheduleHelper.aspx?WT=0&lg=3749",
 ).strip()
+FALCON_WC_HELPER_URLS = os.getenv("FALCON_WC_HELPER_URLS", "").strip()
 FALCON_USERNAME = os.getenv("FALCON_USERNAME", "").strip()
 FALCON_PASSWORD = os.getenv("FALCON_PASSWORD", "").strip()
 FALCON_COOKIE = os.getenv("FALCON_COOKIE", "").strip()
@@ -47,6 +55,7 @@ BETVEGAS23_WC_HELPER_URL = os.getenv(
     "BETVEGAS23_WC_HELPER_URL",
     "https://backend.betvegas23.com/wager/NewScheduleHelper.aspx?WT=0&lg=3749",
 ).strip()
+BETVEGAS23_WC_HELPER_URLS = os.getenv("BETVEGAS23_WC_HELPER_URLS", "").strip()
 BETVEGAS23_USERNAME = os.getenv("BETVEGAS23_USERNAME", "").strip()
 BETVEGAS23_PASSWORD = os.getenv("BETVEGAS23_PASSWORD", "").strip()
 BETVEGAS23_COOKIE = os.getenv("BETVEGAS23_COOKIE", "").strip()
@@ -100,3 +109,15 @@ BUCKEYE2_LINES_URL = os.getenv(
 ).strip()
 BUCKEYE2_LINES_POST_BODY = os.getenv("BUCKEYE2_LINES_POST_BODY", "{}").strip()
 BUCKEYE2_EXTRA_HEADERS_JSON = os.getenv("BUCKEYE2_EXTRA_HEADERS_JSON", "").strip()
+
+# Kalshi — public market data (no API key for reads).
+KALSHI_ENABLED = _env_truthy("KALSHI_ENABLED", "false")
+KALSHI_API_BASE = os.getenv(
+    "KALSHI_API_BASE",
+    "https://api.elections.kalshi.com/trade-api/v2",
+).strip()
+KALSHI_SERIES_TICKERS = os.getenv(
+    "KALSHI_SERIES_TICKERS",
+    "KXWCGAME,KXWCTOTAL,KXWCTEAMTOTAL,KXWCSPREAD,KXWCGOAL",
+).strip()
+KALSHI_MARKET_STATUS = os.getenv("KALSHI_MARKET_STATUS", "open").strip()
