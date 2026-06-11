@@ -29,7 +29,11 @@ from app.config import (
     ODDS_API_SPORT_KEY,
 )
 from app.metallic_client import fetch_metallic_schedule
-from app.metallic_parser import MetallicLine, extract_wc_lines_from_schedule
+from app.metallic_parser import (
+    MetallicLine,
+    MetallicOffer,
+    extract_all_offers_from_schedule,
+)
 from app.events import matchup_key, matchup_label, opponent_in_event
 from app.models import ArbBoardSnapshot, utc_now
 from app.names import team_norm, team_total_label
@@ -94,6 +98,56 @@ def _team_lines_to_offers(lines: list[TeamTotalLine], *, book: str) -> list[Offe
     return offers
 
 
+def _metallic_offers_to_scanner(offers: list[MetallicOffer]) -> list[Offer]:
+    out: list[Offer] = []
+    for mo in offers:
+        if mo.opponent:
+            matchup = matchup_key(mo.participant, mo.opponent)
+        elif mo.fixture_label and " vs " in mo.fixture_label:
+            parts = mo.fixture_label.split(" vs ", 1)
+            matchup = matchup_key(parts[0], parts[1])
+        else:
+            matchup = matchup_key(mo.participant, mo.participant)
+
+        fixture = mo.fixture_label or mo.event_label
+        if mo.market == "totals":
+            label = f"{fixture} total {mo.line:g}"
+            participant = "game"
+        elif mo.market == "team_totals":
+            label = team_total_label(mo.participant, mo.line)
+            participant = mo.participant
+        elif mo.market == "spreads":
+            label = f"{mo.participant} {mo.line:+g}"
+            participant = mo.participant
+        elif mo.market == "h2h":
+            label = f"{fixture} {mo.participant}"
+            participant = mo.participant
+        elif mo.market in ("props", "futures"):
+            label = mo.prop_detail or mo.event_label
+            if mo.participant and mo.participant.lower() not in label.lower():
+                label = f"{label} — {mo.participant}"
+            participant = mo.participant
+        else:
+            label = mo.event_label
+            participant = mo.participant
+
+        out.append(
+            Offer(
+                book="metallic",
+                market=mo.market,
+                label=label,
+                event_date=mo.event_date,
+                event_label=fixture,
+                participant=participant,
+                matchup=matchup,
+                line=mo.line,
+                side=mo.side,
+                american=int(mo.american),
+            )
+        )
+    return out
+
+
 def _external_lines_to_offers(
     lines: list[MetallicLine] | list[BuckeyeLine],
     *,
@@ -149,12 +203,19 @@ def collect_metallic_offers() -> list[Offer]:
     payload = fetch_metallic_schedule()
     if payload is None:
         return []
-    lines = extract_wc_lines_from_schedule(payload)
-    offers = _external_lines_to_offers(lines, book="metallic")
-    if not lines:
-        log.info("Metallic: 0 priced WC lines (check schedule POST body / sport menu)")
+    parsed = extract_all_offers_from_schedule(payload)
+    offers = _metallic_offers_to_scanner(parsed)
+    if not offers:
+        log.info("Metallic: 0 offers (check schedule POST body / sport menu)")
     else:
-        log.info("Metallic: %s priced WC lines", len(lines))
+        by_market: dict[str, int] = {}
+        for offer in offers:
+            by_market[offer.market] = by_market.get(offer.market, 0) + 1
+        log.info(
+            "Metallic: %s offers (%s)",
+            len(offers),
+            ", ".join(f"{k}={v}" for k, v in sorted(by_market.items())),
+        )
     return offers
 
 
@@ -363,6 +424,9 @@ def refresh_snapshot(*, session) -> dict[str, Any]:
 
     books = sorted({o.book for o in all_offers})
     by_book = {b: sum(1 for o in all_offers if o.book == b) for b in books}
+    metallic_by_market: dict[str, int] = {}
+    for offer in metallic:
+        metallic_by_market[offer.market] = metallic_by_market.get(offer.market, 0) + 1
     scanned_at = utc_now()
     payload = _normalize_snapshot_books(
         {
@@ -372,6 +436,7 @@ def refresh_snapshot(*, session) -> dict[str, Any]:
             "arb_count": len(arbs),
             "books": books,
             "offers_by_book": by_book,
+            "metallic_by_market": metallic_by_market,
             "arbs": [arb_to_dict(a) for a in arbs],
         }
     )

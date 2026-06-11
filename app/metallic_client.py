@@ -23,7 +23,10 @@ _WC_RE = re.compile(r"world\s*cup|fifa", re.I)
 _LEGACY_BODY_KEYS = frozenset({"languageID", "lineType", "id"})
 # Steam22 FIFA World Cup 2026 — spid from schedule response (see DevTools schedules/S/0).
 _DEFAULT_WC_SCHEDULE_REQUESTS: list[dict[str, int]] = [
-    {"IdSport": 232, "Period": 0},  # FIFA - World Cup (spread/ML/total/team total)
+    {"IdSport": 232, "Period": 0},  # FIFA - World Cup (full game)
+    {"IdSport": 232, "Period": 1},  # 1st Half
+    {"IdSport": 396, "Period": 0},  # World Cup - Futures
+    {"IdSport": 231, "Period": 0},  # World Cup - Props
 ]
 _SCHEDULE_BODIES_CACHE: list[Any] | None = None
 _SCHEDULE_PAYLOAD_CACHE: tuple[float, Any] | None = None
@@ -229,27 +232,54 @@ def _post_schedule(token: str, body: Any) -> Any | None:
         return None
 
 
+def _count_priced_cells(payload: Any) -> int:
+    if not isinstance(payload, list):
+        return 0
+    total = 0
+    for root in payload:
+        if not isinstance(root, dict):
+            continue
+        sc = root.get("sc")
+        if not isinstance(sc, dict):
+            continue
+        for schl in sc.get("schl") or []:
+            if not isinstance(schl, dict):
+                continue
+            for game in schl.get("g") or []:
+                if not isinstance(game, dict):
+                    continue
+                for team in game.get("ts") or []:
+                    if not isinstance(team, dict):
+                        continue
+                    ls = team.get("ls")
+                    if not isinstance(ls, dict):
+                        continue
+                    for key in ("s", "m", "t", "to", "tu"):
+                        for cell in ls.get(key) or []:
+                            if isinstance(cell, dict) and cell.get("o") is not None:
+                                total += 1
+    return total
+
+
 def _payload_score(payload: Any) -> int:
-    stats = _payload_stats(payload)
-    if "tt_cells=" not in stats:
-        return 0
-    try:
-        return int(stats.rsplit("tt_cells=", 1)[-1])
-    except ValueError:
-        return 0
+    return _count_priced_cells(payload)
 
 
 def _payload_stats(payload: Any) -> str:
     if isinstance(payload, list):
         games = 0
         team_rows = 0
-        tt_cells = 0
+        priced_cells = 0
+        roots_by_spid: dict[int, int] = {}
         for root in payload:
             if not isinstance(root, dict):
                 continue
             sc = root.get("sc")
             if not isinstance(sc, dict):
                 continue
+            spid = sc.get("spid")
+            if isinstance(spid, int):
+                roots_by_spid[spid] = roots_by_spid.get(spid, 0) + 1
             for schl in sc.get("schl") or []:
                 if not isinstance(schl, dict):
                     continue
@@ -263,8 +293,15 @@ def _payload_stats(payload: Any) -> str:
                         team_rows += 1
                         ls = team.get("ls")
                         if isinstance(ls, dict):
-                            tt_cells += len(ls.get("to") or []) + len(ls.get("tu") or [])
-        return f"roots={len(payload)} games={games} team_rows={team_rows} tt_cells={tt_cells}"
+                            for key in ("s", "m", "t", "to", "tu"):
+                                for cell in ls.get(key) or []:
+                                    if isinstance(cell, dict) and cell.get("o") is not None:
+                                        priced_cells += 1
+        spid_part = ",".join(f"{k}:{v}" for k, v in sorted(roots_by_spid.items()))
+        return (
+            f"roots={len(payload)} spids=[{spid_part}] "
+            f"games={games} team_rows={team_rows} priced_cells={priced_cells}"
+        )
     if isinstance(payload, dict):
         return f"dict_keys={list(payload.keys())[:8]}"
     return f"type={type(payload).__name__}"

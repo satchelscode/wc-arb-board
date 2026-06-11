@@ -1,4 +1,4 @@
-"""Parse Metallic / Steam22 WC schedule JSON into team-total and game-total lines."""
+"""Parse Metallic / Steam22 WC schedule JSON into all offered markets."""
 
 from __future__ import annotations
 
@@ -8,15 +8,16 @@ from datetime import datetime
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
-from app.events import matchup_key
+from app.events import matchup_key, matchup_label
 from app.names import display_team_name, team_norm
 
 _ET = ZoneInfo("America/New_York")
-_TEAM_TOTAL_MAX_POINT = 2.5
 _DATE_IN_TEXT = re.compile(
     r"(?P<mon>[A-Za-z]{3,9})\s+(?P<day>\d{1,2})(?:,?\s+(?P<year>\d{4}))?",
     re.I,
 )
+_VS_RE = re.compile(r"\s+vs\s+", re.I)
+_ROUND_PREFIX = re.compile(r"^Round\s+\d+\s*-\s*", re.I)
 _MONTHS = {
     "jan": 1,
     "feb": 2,
@@ -31,6 +32,21 @@ _MONTHS = {
     "nov": 11,
     "dec": 12,
 }
+
+
+@dataclass(frozen=True)
+class MetallicOffer:
+    event_date: str
+    event_label: str
+    fixture_label: str
+    category: str
+    market: str
+    participant: str
+    opponent: str
+    line: float
+    side: str
+    american: int
+    prop_detail: str = ""
 
 
 @dataclass(frozen=True)
@@ -106,29 +122,55 @@ def _cell_point_odds(cell: dict[str, Any]) -> tuple[float | None, int | None]:
     return point, odds
 
 
-def _ou_from_cells(cells: list[dict[str, Any]]) -> tuple[float | None, int | None, int | None]:
-    """Return (line, over, under) from game-total cells (ls.t)."""
-    by_point: dict[float, list[int]] = {}
+def _side_from_bet_id(cell: dict[str, Any]) -> str | None:
+    bet_id = str(cell.get("i") or "")
+    if bet_id.startswith("4_"):
+        return "over"
+    if bet_id.startswith("5_"):
+        return "under"
+    return None
+
+
+def _ou_pairs_from_cells(
+    cells: list[dict[str, Any]],
+) -> list[tuple[float, int | None, int | None]]:
+    overs: dict[float, int] = {}
+    unders: dict[float, int] = {}
+    unpaired: dict[float, list[int]] = {}
     for cell in cells:
         if not isinstance(cell, dict):
             continue
         point, odds = _cell_point_odds(cell)
         if point is None or odds is None:
             continue
-        by_point.setdefault(point, []).append(odds)
-    if not by_point:
-        return None, None, None
-    line = sorted(by_point)[0]
-    prices = sorted(by_point[line], reverse=True)
-    if len(prices) >= 2:
-        return line, prices[0], prices[1]
-    if len(prices) == 1:
-        return line, prices[0], None
-    return None, None, None
+        side = _side_from_bet_id(cell)
+        if side == "over":
+            overs[point] = odds
+        elif side == "under":
+            unders[point] = odds
+        else:
+            unpaired.setdefault(point, []).append(odds)
+
+    points = sorted(set(overs) | set(unders) | set(unpaired))
+    out: list[tuple[float, int | None, int | None]] = []
+    for point in points:
+        over_p = overs.get(point)
+        under_p = unders.get(point)
+        if over_p is None or under_p is None:
+            prices = sorted(unpaired.get(point, []), reverse=True)
+            if over_p is None and prices:
+                over_p = prices[0]
+            if under_p is None and len(prices) >= 2:
+                under_p = prices[-1]
+            elif under_p is None and len(prices) == 1 and over_p != prices[0]:
+                under_p = prices[0]
+        if over_p is None and under_p is None:
+            continue
+        out.append((point, over_p, under_p))
+    return out
 
 
 def _team_totals_from_ls(ls: dict[str, Any]) -> list[tuple[float, int | None, int | None]]:
-    """Steam22 team totals use ls.to (over) and ls.tu (under), not ls.t."""
     over_by_point: dict[float, int] = {}
     under_by_point: dict[float, int] = {}
     for cell in ls.get("to") or []:
@@ -145,41 +187,12 @@ def _team_totals_from_ls(ls: dict[str, Any]) -> list[tuple[float, int | None, in
             under_by_point[point] = odds
     lines: list[tuple[float, int | None, int | None]] = []
     for point in sorted(set(over_by_point) | set(under_by_point)):
-        if point > _TEAM_TOTAL_MAX_POINT:
-            continue
         over_p = over_by_point.get(point)
         under_p = under_by_point.get(point)
         if over_p is None and under_p is None:
             continue
         lines.append((point, over_p, under_p))
     return lines
-
-
-def _team_totals_from_lines_obj(lines: dict[str, Any]) -> list[tuple[float, int | None, int | None]]:
-    over_by_point: dict[float, int] = {}
-    under_by_point: dict[float, int] = {}
-    for cell in lines.get("TeamTotalsOver") or []:
-        if not isinstance(cell, dict):
-            continue
-        point, odds = _cell_point_odds(cell)
-        if point is not None and odds is not None:
-            over_by_point[point] = odds
-    for cell in lines.get("TeamTotalsUnder") or []:
-        if not isinstance(cell, dict):
-            continue
-        point, odds = _cell_point_odds(cell)
-        if point is not None and odds is not None:
-            under_by_point[point] = odds
-    out: list[tuple[float, int | None, int | None]] = []
-    for point in sorted(set(over_by_point) | set(under_by_point)):
-        if point > _TEAM_TOTAL_MAX_POINT:
-            continue
-        over_p = over_by_point.get(point)
-        under_p = under_by_point.get(point)
-        if over_p is None and under_p is None:
-            continue
-        out.append((point, over_p, under_p))
-    return out
 
 
 def _team_name(node: dict[str, Any]) -> str:
@@ -190,87 +203,349 @@ def _team_name(node: dict[str, Any]) -> str:
     return ""
 
 
-def _maybe_date_from_node(node: dict[str, Any]) -> str:
-    for key in ("gd", "dt", "d", "date", "ld", "gmdt"):
-        val = node.get(key)
-        if val is None:
-            continue
-        iso = _epoch_to_et_date(val)
-        if iso:
-            return iso
-    for key in ("n", "desc", "description", "ld"):
-        val = node.get(key)
-        if isinstance(val, str):
-            iso = _parse_date_text(val)
-            if iso:
-                return iso
+def _category_from_sc(sc: dict[str, Any]) -> str:
+    spid = sc.get("spid")
+    period = sc.get("p", 0)
+    league = str(sc.get("l") or "").lower()
+    ps = str(sc.get("ps") or "").upper()
+    pd = str(sc.get("pd") or "").lower()
+    if spid == 396 or "futures" in league:
+        return "futures"
+    if spid == 231 or "props" in league:
+        return "props"
+    if spid == 232 and (period == 1 or ps == "1H" or "1st half" in pd):
+        return "1h"
+    return "game"
+
+
+def _period_prefix(category: str) -> str:
+    if category == "1h":
+        return "[1H] "
+    if category == "props":
+        return "[Props] "
+    if category == "futures":
+        return "[Futures] "
     return ""
 
 
-def _iter_nodes(value: Any) -> Iterable[dict[str, Any]]:
-    if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            yield from _iter_nodes(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _iter_nodes(child)
+def _split_game_name(name: str) -> tuple[str, str, str]:
+    raw = _ROUND_PREFIX.sub("", (name or "").strip())
+    if " - " in raw:
+        head, tail = raw.split(" - ", 1)
+        if _VS_RE.search(head):
+            parts = _VS_RE.split(head, maxsplit=1)
+            if len(parts) == 2:
+                return parts[0].strip(), parts[1].strip(), tail.strip()
+    if _VS_RE.search(raw):
+        parts = _VS_RE.split(raw, maxsplit=1)
+        if len(parts) == 2:
+            return parts[0].strip(), parts[1].strip(), ""
+    return "", "", raw
 
 
-def _lines_from_team_row(
-    *,
-    team: str,
-    opponent: str,
-    event_date: str,
-    ls: dict[str, Any],
-) -> list[MetallicLine]:
-    if not team:
-        return []
-    out: list[MetallicLine] = []
-    for line, over_p, under_p in _team_totals_from_ls(ls):
-        out.append(
-            MetallicLine(
-                team=display_team_name(team),
-                opponent=display_team_name(opponent),
-                event_date=event_date,
-                market="team_totals",
-                line=line,
-                over_price=over_p,
-                under_price=under_p,
+def _fixture_label(team_a: str, team_b: str, fallback: str) -> str:
+    if team_a and team_b:
+        return matchup_label(team_a, team_b)
+    return fallback
+
+
+def _game_kind(category: str, game_name: str, teams: list[dict[str, Any]]) -> str:
+    if category == "futures":
+        return "futures"
+    if category == "props":
+        lower = game_name.lower()
+        if any(
+            k in lower
+            for k in (
+                "first goalscorer",
+                "correct score",
+                "halftime and full",
+                "ht/ft",
+                "ht ft",
             )
+        ):
+            return "prop_ml"
+        return "prop_ou"
+    for row in teams:
+        ls = row.get("ls")
+        if not isinstance(ls, dict):
+            continue
+        if ls.get("s") or ls.get("to") or ls.get("tu"):
+            return "matchup"
+    if _VS_RE.search(game_name) or _ROUND_PREFIX.search(game_name or ""):
+        return "matchup"
+    return "prop_ml"
+
+
+def _append_ou_offers(
+    out: list[MetallicOffer],
+    *,
+    event_date: str,
+    event_label: str,
+    fixture_label: str,
+    category: str,
+    market: str,
+    participant: str,
+    opponent: str,
+    pairs: list[tuple[float, int | None, int | None]],
+    prop_detail: str = "",
+) -> None:
+    for point, over_p, under_p in pairs:
+        if over_p is not None:
+            out.append(
+                MetallicOffer(
+                    event_date=event_date,
+                    event_label=event_label,
+                    fixture_label=fixture_label,
+                    category=category,
+                    market=market,
+                    participant=participant,
+                    opponent=opponent,
+                    line=point,
+                    side="over",
+                    american=over_p,
+                    prop_detail=prop_detail,
+                )
+            )
+        if under_p is not None:
+            out.append(
+                MetallicOffer(
+                    event_date=event_date,
+                    event_label=event_label,
+                    fixture_label=fixture_label,
+                    category=category,
+                    market=market,
+                    participant=participant,
+                    opponent=opponent,
+                    line=point,
+                    side="under",
+                    american=under_p,
+                    prop_detail=prop_detail,
+                )
+            )
+
+
+def _lines_from_matchup(
+    *,
+    game_name: str,
+    teams: list[dict[str, Any]],
+    event_date: str,
+    category: str,
+) -> list[MetallicOffer]:
+    team_a, team_b, _prop = _split_game_name(game_name)
+    fixture = _fixture_label(team_a, team_b, game_name)
+    prefix = _period_prefix(category)
+    event_label = f"{prefix}{fixture}" if fixture else f"{prefix}{game_name}"
+    out: list[MetallicOffer] = []
+
+    names = [_team_name(t) for t in teams]
+    draw_idx = next(
+        (i for i, n in enumerate(names) if n.lower() == "draw"),
+        None,
+    )
+    matchup_rows: list[tuple[int, str, str, dict[str, Any]]] = []
+    for idx, row in enumerate(teams):
+        name = names[idx]
+        if not name:
+            continue
+        if draw_idx is not None and idx == draw_idx:
+            opponent = ""
+        elif team_a and team_b:
+            opponent = team_b if team_norm(name) == team_norm(team_a) else team_a
+        elif len(names) == 2:
+            opponent = names[1 - idx]
+        else:
+            others = [n for j, n in enumerate(names) if j != idx and n and n.lower() != "draw"]
+            opponent = others[0] if others else ""
+        ls = row.get("ls")
+        if not isinstance(ls, dict):
+            continue
+        matchup_rows.append((idx, name, opponent, ls))
+
+    for _idx, team, opponent, ls in matchup_rows:
+        if team.lower() == "draw":
+            for cell in ls.get("m") or []:
+                if not isinstance(cell, dict):
+                    continue
+                _, odds = _cell_point_odds(cell)
+                if odds is None:
+                    continue
+                out.append(
+                    MetallicOffer(
+                        event_date=event_date,
+                        event_label=event_label,
+                        fixture_label=fixture,
+                        category=category,
+                        market="h2h",
+                        participant="Draw",
+                        opponent="",
+                        line=0.0,
+                        side="ml",
+                        american=odds,
+                    )
+                )
+            continue
+
+        for cell in ls.get("s") or []:
+            if not isinstance(cell, dict):
+                continue
+            point, odds = _cell_point_odds(cell)
+            if odds is None:
+                continue
+            out.append(
+                MetallicOffer(
+                    event_date=event_date,
+                    event_label=event_label,
+                    fixture_label=fixture,
+                    category=category,
+                    market="spreads",
+                    participant=display_team_name(team),
+                    opponent=display_team_name(opponent),
+                    line=point or 0.0,
+                    side="spread",
+                    american=odds,
+                )
+            )
+
+        for cell in ls.get("m") or []:
+            if not isinstance(cell, dict):
+                continue
+            _, odds = _cell_point_odds(cell)
+            if odds is None:
+                continue
+            out.append(
+                MetallicOffer(
+                    event_date=event_date,
+                    event_label=event_label,
+                    fixture_label=fixture,
+                    category=category,
+                    market="h2h",
+                    participant=display_team_name(team),
+                    opponent=display_team_name(opponent),
+                    line=0.0,
+                    side="ml",
+                    american=odds,
+                )
+            )
+
+        _append_ou_offers(
+            out,
+            event_date=event_date,
+            event_label=event_label,
+            fixture_label=fixture,
+            category=category,
+            market="team_totals",
+            participant=display_team_name(team),
+            opponent=display_team_name(opponent),
+            pairs=_team_totals_from_ls(ls),
+        )
+
+    non_draw = [
+        (names[i], teams[i].get("ls"))
+        for i in range(len(teams))
+        if i != draw_idx and isinstance(teams[i].get("ls"), dict)
+    ]
+    if len(non_draw) >= 2:
+        cells: list[dict[str, Any]] = []
+        for _name, ls_obj in non_draw[:2]:
+            cells.extend(c for c in (ls_obj.get("t") or []) if isinstance(c, dict))
+        _append_ou_offers(
+            out,
+            event_date=event_date,
+            event_label=event_label,
+            fixture_label=fixture,
+            category=category,
+            market="totals",
+            participant="game",
+            opponent="",
+            pairs=_ou_pairs_from_cells(cells),
+        )
+
+    return out
+
+
+def _lines_from_prop_ou(
+    *,
+    game_name: str,
+    teams: list[dict[str, Any]],
+    event_date: str,
+    category: str,
+) -> list[MetallicOffer]:
+    team_a, team_b, prop = _split_game_name(game_name)
+    fixture = _fixture_label(team_a, team_b, game_name)
+    prefix = _period_prefix(category)
+    prop_detail = prop or game_name
+    event_label = f"{prefix}{game_name}"
+    out: list[MetallicOffer] = []
+
+    for row in teams:
+        name = _team_name(row)
+        ls = row.get("ls")
+        if not isinstance(ls, dict):
+            continue
+        cells = [c for c in (ls.get("t") or []) if isinstance(c, dict)]
+        if not cells:
+            continue
+        participant = display_team_name(name) if name else prop_detail
+        _append_ou_offers(
+            out,
+            event_date=event_date,
+            event_label=event_label,
+            fixture_label=fixture,
+            category=category,
+            market="props",
+            participant=participant,
+            opponent="",
+            pairs=_ou_pairs_from_cells(cells),
+            prop_detail=prop_detail,
         )
     return out
 
 
-def _lines_from_game_totals(
+def _lines_from_prop_ml(
     *,
-    away: str,
-    home: str,
+    game_name: str,
+    teams: list[dict[str, Any]],
     event_date: str,
-    away_ls: dict[str, Any],
-    home_ls: dict[str, Any],
-) -> list[MetallicLine]:
-    away_cells = [c for c in (away_ls.get("t") or []) if isinstance(c, dict)]
-    home_cells = [c for c in (home_ls.get("t") or []) if isinstance(c, dict)]
-    merged = away_cells + home_cells
-    line, over_p, under_p = _ou_from_cells(merged)
-    if line is None or line <= _TEAM_TOTAL_MAX_POINT:
-        return []
-    if over_p is None and under_p is None:
-        return []
-    label_team = display_team_name(away)
-    label_opp = display_team_name(home)
-    return [
-        MetallicLine(
-            team=label_team,
-            opponent=label_opp,
-            event_date=event_date,
-            market="totals",
-            line=line,
-            over_price=over_p,
-            under_price=under_p,
-        )
-    ]
+    category: str,
+    market: str,
+) -> list[MetallicOffer]:
+    team_a, team_b, prop = _split_game_name(game_name)
+    fixture = _fixture_label(team_a, team_b, game_name)
+    prefix = _period_prefix(category)
+    prop_detail = prop or game_name
+    event_label = f"{prefix}{game_name}"
+    out: list[MetallicOffer] = []
+
+    for row in teams:
+        name = _team_name(row)
+        if not name:
+            continue
+        ls = row.get("ls")
+        if not isinstance(ls, dict):
+            continue
+        for cell in ls.get("m") or []:
+            if not isinstance(cell, dict):
+                continue
+            _, odds = _cell_point_odds(cell)
+            if odds is None:
+                continue
+            out.append(
+                MetallicOffer(
+                    event_date=event_date,
+                    event_label=event_label,
+                    fixture_label=fixture,
+                    category=category,
+                    market=market,
+                    participant=display_team_name(name),
+                    opponent="",
+                    line=0.0,
+                    side="ml",
+                    american=odds,
+                    prop_detail=prop_detail,
+                )
+            )
+    return out
 
 
 def _roots_from_payload(payload: Any) -> list[dict[str, Any]]:
@@ -281,13 +556,13 @@ def _roots_from_payload(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _lines_from_schedule_tree(payload: Any) -> list[MetallicLine]:
-    """Parse Steam22 schedule array: [{sc: {schl: [{d, g: [{t, ts: [{n, ls}]}]}]}}]."""
-    out: list[MetallicLine] = []
+def _lines_from_schedule_tree(payload: Any) -> list[MetallicOffer]:
+    out: list[MetallicOffer] = []
     for root in _roots_from_payload(payload):
         sc = root.get("sc")
         if not isinstance(sc, dict):
             continue
+        category = _category_from_sc(sc)
         for schl in sc.get("schl") or []:
             if not isinstance(schl, dict):
                 continue
@@ -298,151 +573,128 @@ def _lines_from_schedule_tree(payload: Any) -> list[MetallicLine]:
                 if not isinstance(game, dict):
                     continue
                 game_date = block_date or _epoch_to_et_date(game.get("t"))
+                game_name = str(game.get("n") or "").strip()
                 teams = [t for t in (game.get("ts") or []) if isinstance(t, dict)]
-                names = [_team_name(t) for t in teams]
-                for idx, team_row in enumerate(teams):
-                    team = _team_name(team_row)
-                    if not team:
-                        continue
-                    others = [n for j, n in enumerate(names) if j != idx and n]
-                    opponent = others[0] if len(others) == 1 else ""
-                    if len(others) >= 2:
-                        opponent = others[1] if idx == 0 else others[0]
-                    ls = team_row.get("ls")
-                    if not isinstance(ls, dict):
-                        continue
-                    for line in _lines_from_team_row(
-                        team=team,
-                        opponent=opponent,
-                        event_date=game_date,
-                        ls=ls,
-                    ):
-                        out.append(line)
-                if len(teams) == 2:
-                    away_ls = teams[0].get("ls") if isinstance(teams[0].get("ls"), dict) else {}
-                    home_ls = teams[1].get("ls") if isinstance(teams[1].get("ls"), dict) else {}
+                if not teams:
+                    continue
+                kind = _game_kind(category, game_name, teams)
+                if kind == "matchup":
                     out.extend(
-                        _lines_from_game_totals(
-                            away=names[0],
-                            home=names[1],
+                        _lines_from_matchup(
+                            game_name=game_name,
+                            teams=teams,
                             event_date=game_date,
-                            away_ls=away_ls,
-                            home_ls=home_ls,
+                            category=category,
+                        )
+                    )
+                elif kind == "prop_ou":
+                    out.extend(
+                        _lines_from_prop_ou(
+                            game_name=game_name,
+                            teams=teams,
+                            event_date=game_date,
+                            category=category,
+                        )
+                    )
+                elif kind == "futures":
+                    out.extend(
+                        _lines_from_prop_ml(
+                            game_name=game_name,
+                            teams=teams,
+                            event_date=game_date,
+                            category=category,
+                            market="futures",
+                        )
+                    )
+                else:
+                    out.extend(
+                        _lines_from_prop_ml(
+                            game_name=game_name,
+                            teams=teams,
+                            event_date=game_date,
+                            category=category,
+                            market="props",
                         )
                     )
     return out
 
 
-def extract_wc_lines_from_schedule(payload: Any) -> list[MetallicLine]:
+def _dedupe_offers(offers: list[MetallicOffer]) -> list[MetallicOffer]:
+    best: dict[tuple[Any, ...], MetallicOffer] = {}
+    for offer in offers:
+        if not offer.event_date or offer.american is None:
+            continue
+        key = (
+            offer.category,
+            offer.event_date,
+            offer.fixture_label,
+            offer.market,
+            team_norm(offer.participant),
+            round(offer.line, 2),
+            offer.side,
+            offer.prop_detail,
+        )
+        prev = best.get(key)
+        if prev is None or offer.american > prev.american:
+            best[key] = offer
+    return list(best.values())
+
+
+def extract_all_offers_from_schedule(payload: Any) -> list[MetallicOffer]:
     if not isinstance(payload, (dict, list)):
         return []
-    found: dict[tuple[str, str, str, str, float], MetallicLine] = {}
-    current_date = ""
+    return _dedupe_offers(_lines_from_schedule_tree(payload))
 
-    def _add(line: MetallicLine) -> None:
-        if not line.event_date or not line.team:
-            return
-        if line.market == "team_totals":
-            key = (
-                team_norm(line.team),
-                team_norm(line.opponent),
-                line.event_date,
-                line.market,
-                round(line.line, 2),
+
+def _offers_to_metallic_lines(offers: list[MetallicOffer]) -> list[MetallicLine]:
+    """Collapse O/U offers into MetallicLine rows for legacy callers."""
+    bucket: dict[tuple[str, str, str, str, float], MetallicLine] = {}
+    for offer in offers:
+        if offer.market not in ("team_totals", "totals"):
+            continue
+        if offer.market == "totals":
+            team = offer.fixture_label.split(" vs ")[0] if " vs " in offer.fixture_label else ""
+            opponent = (
+                offer.fixture_label.split(" vs ", 1)[1]
+                if " vs " in offer.fixture_label
+                else ""
             )
-        else:
-            pair = matchup_tuple(line.team, line.opponent)
-            key = (pair[0], pair[1], line.event_date, line.market, round(line.line, 2))
-        prev = found.get(key)
-        if prev is None:
-            found[key] = line
-            return
-        over = prev.over_price
-        if line.over_price is not None:
-            over = line.over_price if over is None else max(over, line.over_price)
-        under = prev.under_price
-        if line.under_price is not None:
-            under = line.under_price if under is None else max(under, line.under_price)
-        found[key] = MetallicLine(
-            team=prev.team,
-            opponent=prev.opponent,
-            event_date=prev.event_date,
-            market=prev.market,
-            line=prev.line,
-            over_price=over,
-            under_price=under,
-        )
-
-    tree_lines = _lines_from_schedule_tree(payload)
-    for line in tree_lines:
-        _add(line)
-
-    if tree_lines:
-        return list(found.values())
-
-    for node in _iter_nodes(payload):
-        maybe_date = _maybe_date_from_node(node)
-        if maybe_date:
-            current_date = maybe_date
-
-        ts = node.get("ts")
-        if isinstance(ts, list) and len(ts) == 2:
-            a_row = ts[0] if isinstance(ts[0], dict) else {}
-            b_row = ts[1] if isinstance(ts[1], dict) else {}
-            away = _team_name(a_row)
-            home = _team_name(b_row)
-            event_date = _maybe_date_from_node(node) or current_date
-            away_ls = a_row.get("ls") if isinstance(a_row.get("ls"), dict) else {}
-            home_ls = b_row.get("ls") if isinstance(b_row.get("ls"), dict) else {}
-            for line in _lines_from_team_row(
-                team=away, opponent=home, event_date=event_date, ls=away_ls
-            ):
-                _add(line)
-            for line in _lines_from_team_row(
-                team=home, opponent=away, event_date=event_date, ls=home_ls
-            ):
-                _add(line)
-            for line in _lines_from_game_totals(
-                away=away,
-                home=home,
-                event_date=event_date,
-                away_ls=away_ls,
-                home_ls=home_ls,
-            ):
-                _add(line)
-            continue
-
-        team = _team_name(node)
-        ls = node.get("ls")
-        if team and isinstance(ls, dict):
-            event_date = _maybe_date_from_node(node) or current_date
-            for line in _lines_from_team_row(
-                team=team, opponent="", event_date=event_date, ls=ls
-            ):
-                _add(line)
-            continue
-
-        lines_obj = node.get("Lines")
-        if isinstance(lines_obj, dict):
-            team = _team_name(node)
             if not team:
-                continue
-            event_date = _maybe_date_from_node(node) or current_date
-            opponent = ""
-            for point, over_p, under_p in _team_totals_from_lines_obj(lines_obj):
-                _add(
-                    MetallicLine(
-                        team=display_team_name(team),
-                        opponent=display_team_name(opponent),
-                        event_date=event_date,
-                        market="team_totals",
-                        line=point,
-                        over_price=over_p,
-                        under_price=under_p,
-                    )
-                )
+                parts = offer.fixture_label.split(" vs ")
+                team = parts[0] if parts else offer.fixture_label
+                opponent = parts[1] if len(parts) > 1 else ""
+        else:
+            team = offer.participant
+            opponent = offer.opponent
+        key = (
+            team_norm(team),
+            team_norm(opponent),
+            offer.event_date,
+            offer.market,
+            round(offer.line, 2),
+        )
+        prev = bucket.get(key)
+        over_p = prev.over_price if prev else None
+        under_p = prev.under_price if prev else None
+        if offer.side == "over":
+            over_p = offer.american if over_p is None else max(over_p, offer.american)
+        elif offer.side == "under":
+            under_p = offer.american if under_p is None else max(under_p, offer.american)
+        bucket[key] = MetallicLine(
+            team=display_team_name(team),
+            opponent=display_team_name(opponent),
+            event_date=offer.event_date,
+            market=offer.market,
+            line=offer.line,
+            over_price=over_p,
+            under_price=under_p,
+        )
+    return list(bucket.values())
 
-    return list(found.values())
+
+def extract_wc_lines_from_schedule(payload: Any) -> list[MetallicLine]:
+    """Legacy: team totals and game totals only."""
+    return _offers_to_metallic_lines(extract_all_offers_from_schedule(payload))
 
 
 def matchup_tuple(a: str, b: str) -> tuple[str, str]:
