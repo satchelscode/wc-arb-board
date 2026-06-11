@@ -14,19 +14,36 @@ logging.basicConfig(
 )
 log = logging.getLogger("wc-arb-worker")
 
-from app.config import ODDS_API_KEY, SCAN_INTERVAL_SECONDS
+from app.config import DATABASE_URL, ODDS_API_KEY, SCAN_INTERVAL_SECONDS
 from app.db import SessionLocal, engine
 from app.models import Base
 from app.scanner import refresh_snapshot
 
-Base.metadata.create_all(bind=engine)
+
+def _ensure_schema() -> None:
+    Base.metadata.create_all(bind=engine)
 
 
 def main() -> None:
-    if not ODDS_API_KEY:
-        raise RuntimeError("ODDS_API_KEY is required")
-    log.info("WC arb board worker started (interval=%ss)", SCAN_INTERVAL_SECONDS)
+    log.info("WC arb board worker starting (interval=%ss)", SCAN_INTERVAL_SECONDS)
+    try:
+        _ensure_schema()
+    except Exception:
+        log.exception("Database schema init failed — check DATABASE_URL")
+        raise
+
     while True:
+        if not ODDS_API_KEY:
+            log.error(
+                "ODDS_API_KEY is missing on wc-arb-board-worker — "
+                "set it in Render → Environment, then redeploy"
+            )
+            time.sleep(60)
+            continue
+        if not DATABASE_URL:
+            log.error("DATABASE_URL is missing on wc-arb-board-worker")
+            time.sleep(60)
+            continue
         try:
             with SessionLocal() as session:
                 payload = refresh_snapshot(session=session)
