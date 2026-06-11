@@ -263,6 +263,11 @@ def collect_ace_offers() -> list[Offer]:
             len(pages),
             ", ".join(f"{k}={v}" for k, v in sorted(by_market.items())),
         )
+        if set(by_market.keys()) == {"team_totals"}:
+            log.info(
+                "%s: only team totals — add main-line lg to FALCON_WC_HELPER_URLS if spreads/ML missing",
+                site.label,
+            )
     return offers
 
 
@@ -273,6 +278,14 @@ def collect_kalshi_offers() -> list[Offer]:
     if not markets:
         return []
     parsed = extract_offers_from_kalshi(markets)
+    if markets and not parsed:
+        sample = markets[0]
+        log.warning(
+            "Kalshi: %s markets but 0 parsed offers (sample ticker=%s series=%s)",
+            len(markets),
+            sample.get("ticker"),
+            sample.get("series_ticker"),
+        )
     offers = _parsed_offers_to_scanner(parsed, book="kalshi")
     by_market = _offers_by_market(offers)
     log.info(
