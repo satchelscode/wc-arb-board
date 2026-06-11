@@ -73,8 +73,12 @@ def _epoch_to_et_date(value: Any) -> str:
         except (OSError, ValueError):
             return ""
     if isinstance(value, str):
-        if re.fullmatch(r"\d{8}", value.strip()):
-            s = value.strip()
+        s = value.strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s[:10]):
+            return s[:10]
+        if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+            return s[:10]
+        if re.fullmatch(r"\d{8}", s):
             return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
         return _parse_date_text(value)
     return ""
@@ -293,7 +297,7 @@ def _lines_from_schedule_tree(payload: Any) -> list[MetallicLine]:
             for game in schl.get("g") or []:
                 if not isinstance(game, dict):
                     continue
-                game_date = _epoch_to_et_date(game.get("t")) or block_date
+                game_date = block_date or _epoch_to_et_date(game.get("t"))
                 teams = [t for t in (game.get("ts") or []) if isinstance(t, dict)]
                 names = [_team_name(t) for t in teams]
                 for idx, team_row in enumerate(teams):

@@ -20,6 +20,10 @@ log = logging.getLogger(__name__)
 
 _WC_RE = re.compile(r"world\s*cup|fifa", re.I)
 _LEGACY_BODY_KEYS = frozenset({"languageID", "lineType", "id"})
+# Steam22 FIFA World Cup 2026 — spid from schedule response (see DevTools schedules/S/0).
+_DEFAULT_WC_SCHEDULE_REQUESTS: list[dict[str, int]] = [
+    {"IdSport": 232, "Period": 0},  # FIFA - World Cup (spread/ML/total/team total)
+]
 
 
 def _auth_headers(token: str) -> dict[str, str]:
@@ -42,12 +46,16 @@ def _sport_request(node: dict[str, Any]) -> dict[str, int] | None:
     if id_sport is None:
         id_sport = node.get("IdSport")
     if id_sport is None:
+        id_sport = node.get("spid")
+    if id_sport is None:
         id_sport = node.get("Id")
     if id_sport is None:
         return None
     period = node.get("PeriodNumber")
     if period is None:
-        period = node.get("Period", 0)
+        period = node.get("Period")
+    if period is None:
+        period = node.get("p", 0)
     try:
         return {"IdSport": int(id_sport), "Period": int(period)}
     except (TypeError, ValueError):
@@ -56,7 +64,7 @@ def _sport_request(node: dict[str, Any]) -> dict[str, int] | None:
 
 def _node_text(node: dict[str, Any]) -> str:
     parts: list[str] = []
-    for key in ("Description", "Name", "Label", "l", "n", "desc", "Sport", "SubSport"):
+    for key in ("Description", "Name", "Label", "l", "n", "desc", "Sport", "SubSport", "sb"):
         val = node.get(key)
         if isinstance(val, str) and val.strip():
             parts.append(val.strip())
@@ -172,13 +180,17 @@ def _schedule_post_bodies(token: str) -> list[Any]:
             log.info("Metallic: using %s sport id(s) from menu (no FIFA/WC label match)", len(soccer))
             return [soccer[:12]]
 
-    # Last resort: legacy body if user left it in env, else empty array.
+    # Last resort: legacy body if user left it in env, else known WC spid defaults.
     if raw and raw not in ("", "{}"):
         try:
             return [json.loads(raw)]
         except json.JSONDecodeError:
             pass
-    return [[]]
+    log.info(
+        "Metallic: using default WC schedule body IdSport=%s",
+        _DEFAULT_WC_SCHEDULE_REQUESTS[0]["IdSport"],
+    )
+    return [_DEFAULT_WC_SCHEDULE_REQUESTS]
 
 
 def _post_schedule(token: str, body: Any) -> Any | None:
