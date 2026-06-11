@@ -14,6 +14,7 @@ from app.ace_client import fetch_wc_helper_page
 from app.ace_parser import TeamTotalLine, extract_team_totals_from_helper
 from app.ace_sites import configured_ace_sites
 from app.arb_engine import Offer, arb_to_dict, find_cross_book_arbs
+from app.books import normalize_book_key
 from app.config import (
     ODDS_API_BASE,
     ODDS_API_BOOKS,
@@ -250,6 +251,26 @@ def collect_odds_api_offers() -> list[Offer]:
     return list(bucket.values())
 
 
+def _normalize_snapshot_books(payload: dict[str, Any]) -> dict[str, Any]:
+    books = sorted({normalize_book_key(b) for b in payload.get("books") or []})
+    by_book: dict[str, int] = {}
+    for book, count in (payload.get("offers_by_book") or {}).items():
+        key = normalize_book_key(str(book))
+        by_book[key] = by_book.get(key, 0) + int(count)
+    arbs = []
+    for row in payload.get("arbs") or []:
+        if not isinstance(row, dict):
+            continue
+        arbs.append(
+            {
+                **row,
+                "over_book": normalize_book_key(str(row.get("over_book") or "")),
+                "under_book": normalize_book_key(str(row.get("under_book") or "")),
+            }
+        )
+    return {**payload, "books": books, "offers_by_book": by_book, "arbs": arbs}
+
+
 def refresh_snapshot(*, session) -> dict[str, Any]:
     ace = collect_ace_offers()
     api = collect_odds_api_offers()
@@ -259,15 +280,17 @@ def refresh_snapshot(*, session) -> dict[str, Any]:
     books = sorted({o.book for o in all_offers})
     by_book = {b: sum(1 for o in all_offers if o.book == b) for b in books}
     scanned_at = utc_now()
-    payload = {
-        "scanned_at": scanned_at.isoformat(),
-        "sport_key": ODDS_API_SPORT_KEY,
-        "offer_count": len(all_offers),
-        "arb_count": len(arbs),
-        "books": books,
-        "offers_by_book": by_book,
-        "arbs": [arb_to_dict(a) for a in arbs],
-    }
+    payload = _normalize_snapshot_books(
+        {
+            "scanned_at": scanned_at.isoformat(),
+            "sport_key": ODDS_API_SPORT_KEY,
+            "offer_count": len(all_offers),
+            "arb_count": len(arbs),
+            "books": books,
+            "offers_by_book": by_book,
+            "arbs": [arb_to_dict(a) for a in arbs],
+        }
+    )
     body = json.dumps(payload)
     row = session.get(ArbBoardSnapshot, _STATE_KEY)
     if row is None:
@@ -295,7 +318,7 @@ def load_snapshot(*, session) -> dict[str, Any]:
     try:
         data = json.loads(row.payload_json)
         if isinstance(data, dict):
-            return data
+            return _normalize_snapshot_books(data)
     except json.JSONDecodeError:
         pass
     return {"arbs": [], "offer_count": 0, "arb_count": 0}

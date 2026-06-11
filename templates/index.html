@@ -83,12 +83,17 @@
     </div>
     <script>
       function fmtPrice(n) { return n > 0 ? `+${n}` : `${n}`; }
+      function fmtBook(name) {
+        const key = String(name || "").toLowerCase();
+        if (key === "falcon") return "ACE";
+        return key ? key.toUpperCase() : "—";
+      }
       function fmtScanned(iso) {
         if (!iso) return "Waiting for first scan…";
         return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York" }) + " ET";
       }
       function renderMeta(data) {
-        const books = (data.books || []).join(", ") || "—";
+        const books = (data.books || []).map(fmtBook).join(", ") || "—";
         document.getElementById("meta").innerHTML = `
           <span class="pill">Last scan: <strong>${fmtScanned(data.scanned_at)}</strong></span>
           <span class="pill">Offers tracked: <strong>${data.offer_count || 0}</strong></span>
@@ -112,8 +117,8 @@
               <td>${a.event_label || "—"}</td>
               <td>${a.event_date || "—"}</td>
               <td>${a.line}</td>
-              <td><span class="book">${a.over_book}</span><br><span class="edge">${fmtPrice(a.over_price)}</span></td>
-              <td><span class="book">${a.under_book}</span><br><span class="edge">${fmtPrice(a.under_price)}</span></td>
+              <td><span class="book">${fmtBook(a.over_book)}</span><br><span class="edge">${fmtPrice(a.over_price)}</span></td>
+              <td><span class="book">${fmtBook(a.under_book)}</span><br><span class="edge">${fmtPrice(a.under_price)}</span></td>
               <td class="edge">${a.edge_pct.toFixed(2)}%</td>
             </tr>`).join("")}</tbody>
         </table>`;
