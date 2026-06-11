@@ -125,8 +125,14 @@ def _parsed_offers_to_scanner(
             matchup = matchup_key(mo.participant, mo.participant)
 
         fixture = mo.fixture_label or mo.event_label
-        if mo.market == "totals":
-            label = f"{fixture} total {mo.line:g}"
+        if book == "kalshi" and mo.prop_detail:
+            label = mo.prop_detail
+        elif mo.market == "totals":
+            label = (
+                mo.prop_detail
+                if book == "kalshi" and mo.prop_detail
+                else f"{fixture} game total {mo.line:g}"
+            )
             participant = "game"
         elif mo.market == "team_totals":
             label = team_total_label(mo.participant, mo.line)

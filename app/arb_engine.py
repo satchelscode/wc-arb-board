@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from itertools import product
 
-from app.config import MIN_EDGE_PCT
+from app.config import ARB_EXCLUDE_BOOKS, MIN_EDGE_PCT
 from app.names import display_team_name, team_norm, team_total_label
 
 
@@ -32,13 +32,16 @@ class Offer:
 class Arb:
     market: str
     label: str
+    bet_description: str
     event_date: str
     event_label: str
     line: float
     over_book: str
     over_price: int
+    over_leg: str
     under_book: str
     under_price: int
+    under_leg: str
     edge_pct: float
 
 
@@ -47,6 +50,10 @@ def implied_prob_american(american: int) -> float:
         return 100.0 / (american + 100.0)
     b = abs(american)
     return b / (b + 100.0)
+
+
+def _parse_csv_books(raw: str) -> frozenset[str]:
+    return frozenset(x.strip().lower() for x in (raw or "").split(",") if x.strip())
 
 
 def _group_key(offer: Offer) -> tuple[str, tuple[str, str], str, str, float]:
@@ -87,7 +94,44 @@ def _edge_pct(over_price: int, under_price: int) -> float:
     return max(0.0, (1.0 - total) * 100.0)
 
 
+def _matchup_label_from_key(matchup: tuple[str, str]) -> str:
+    left, right = matchup
+    if left and right and left != right:
+        return f"{display_team_name(left)} vs {display_team_name(right)}"
+    return display_team_name(left or right)
+
+
+def _bet_description(
+    *,
+    market: str,
+    event_label: str,
+    line: float,
+    subject: str,
+    matchup: tuple[str, str],
+) -> str:
+    if market == "team_totals":
+        return team_total_label(display_team_name(subject), line)
+    if market == "totals":
+        fixture = event_label or _matchup_label_from_key(matchup)
+        return f"{fixture} game total {line:g}"
+    return event_label or _matchup_label_from_key(matchup)
+
+
+def _leg_description(offer: Offer) -> str:
+    side = offer.side.upper()
+    if offer.market == "team_totals":
+        team = display_team_name(offer.participant)
+        return f"{team} team total {offer.line:g} {side}"
+    if offer.market == "totals":
+        return f"Game total {offer.line:g} {side}"
+    return f"{offer.label} {side}"
+
+
 def find_cross_book_arbs(offers: list[Offer]) -> list[Arb]:
+    excluded = _parse_csv_books(ARB_EXCLUDE_BOOKS)
+    if excluded:
+        offers = [o for o in offers if o.book.lower() not in excluded]
+
     offers = dedupe_offers(offers)
     by_group: dict[tuple[str, tuple[str, str], str, str, float], list[Offer]] = {}
     for offer in offers:
@@ -104,17 +148,17 @@ def find_cross_book_arbs(offers: list[Offer]) -> list[Arb]:
         if len({o.book for o in group}) < 2:
             continue
 
-        if market == "team_totals":
-            label = team_total_label(subject, line)
-            if matchup[0] and matchup[1] and matchup[0] != matchup[1]:
-                event_label = (
-                    f"{display_team_name(matchup[0])} vs {display_team_name(matchup[1])}"
-                )
-            else:
-                event_label = display_team_name(subject)
-        else:
-            label = next((o.label for o in group if o.label), "")
-            event_label = next((o.event_label for o in group if o.event_label), "")
+        event_label = next((o.event_label for o in group if o.event_label), "")
+        if not event_label:
+            event_label = _matchup_label_from_key(matchup)
+
+        bet_description = _bet_description(
+            market=market,
+            event_label=event_label,
+            line=line,
+            subject=subject,
+            matchup=matchup,
+        )
 
         for over_o, under_o in product(overs.values(), unders.values()):
             if over_o.book == under_o.book:
@@ -129,19 +173,22 @@ def find_cross_book_arbs(offers: list[Offer]) -> list[Arb]:
             arbs.append(
                 Arb(
                     market=market,
-                    label=label,
+                    label=bet_description,
+                    bet_description=bet_description,
                     event_date=event_date,
                     event_label=event_label,
                     line=line,
                     over_book=over_o.book,
                     over_price=over_o.american,
+                    over_leg=_leg_description(over_o),
                     under_book=under_o.book,
                     under_price=under_o.american,
+                    under_leg=_leg_description(under_o),
                     edge_pct=round(edge, 3),
                 )
             )
 
-    arbs.sort(key=lambda a: (-a.edge_pct, a.label, a.line))
+    arbs.sort(key=lambda a: (-a.edge_pct, a.bet_description, a.line))
     return arbs
 
 

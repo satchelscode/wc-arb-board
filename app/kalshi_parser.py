@@ -122,6 +122,17 @@ def _fixture_context(
     return _fixture_from_rules(rules)
 
 
+def _kalshi_ask_pair(market: dict[str, Any]) -> tuple[float | None, float | None]:
+    yes_ask = _dollar_ask(market.get("yes_ask_dollars"))
+    no_ask = _dollar_ask(market.get("no_ask_dollars"))
+    if yes_ask is None or no_ask is None:
+        return yes_ask, no_ask
+    total = yes_ask + no_ask
+    if total < 0.85 or total > 1.25:
+        return None, None
+    return yes_ask, no_ask
+
+
 def _append_side(
     out: list[KalshiOffer],
     *,
@@ -135,7 +146,7 @@ def _append_side(
     ask_prob: float | None,
     prop_detail: str = "",
 ) -> None:
-    if ask_prob is None:
+    if ask_prob is None or ask_prob <= 0 or ask_prob >= 1:
         return
     american = prob_to_american(ask_prob)
     if american is None:
@@ -166,14 +177,14 @@ def _lines_from_market(market: dict[str, Any]) -> list[KalshiOffer]:
         str(market.get("event_ticker") or "")
     )
     team_a, team_b, fixture = _fixture_context(title, rules)
-    yes_ask = _dollar_ask(market.get("yes_ask_dollars"))
-    no_ask = _dollar_ask(market.get("no_ask_dollars"))
+    yes_ask, no_ask = _kalshi_ask_pair(market)
     out: list[KalshiOffer] = []
 
     if series == "KXWCTOTAL":
         m = _TOTAL_RE.search(title) or _TOTAL_RE.search(yes_sub) or _TOTAL_RE.search(rules)
         if m:
             line = float(m.group(1))
+            detail_base = f"Over {line:g} goals scored (90 min)"
             _append_side(
                 out,
                 event_date=event_date,
@@ -184,6 +195,7 @@ def _lines_from_market(market: dict[str, Any]) -> list[KalshiOffer]:
                 line=line,
                 side="over",
                 ask_prob=yes_ask,
+                prop_detail=detail_base,
             )
             _append_side(
                 out,
@@ -195,6 +207,7 @@ def _lines_from_market(market: dict[str, Any]) -> list[KalshiOffer]:
                 line=line,
                 side="under",
                 ask_prob=no_ask,
+                prop_detail=f"Under {line:g} goals (90 min)",
             )
         return out
 
@@ -221,6 +234,7 @@ def _lines_from_market(market: dict[str, Any]) -> list[KalshiOffer]:
                 line=line,
                 side="over",
                 ask_prob=yes_ask,
+                prop_detail=f"{team} scores over {line:g} goals (90 min)",
             )
             _append_side(
                 out,
@@ -232,6 +246,7 @@ def _lines_from_market(market: dict[str, Any]) -> list[KalshiOffer]:
                 line=line,
                 side="under",
                 ask_prob=no_ask,
+                prop_detail=f"{team} scores under {line:g} goals (90 min)",
             )
         return out
 

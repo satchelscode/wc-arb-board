@@ -101,6 +101,8 @@ services:
         sync: false
       - key: KALSHI_SERIES_TICKERS
         value: "KXWCGAME,KXWCTOTAL,KXWCTEAMTOTAL,KXWCSPREAD,KXWCGOAL"
+      - key: ARB_EXCLUDE_BOOKS
+        value: "kalshi"
 
 databases:
   - name: wc-arb-db
