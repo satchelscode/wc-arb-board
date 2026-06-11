@@ -3,7 +3,7 @@ services:
     name: wc-arb-board-web
     env: python
     plan: starter
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python -c "import psycopg; from app.db import _normalize_database_url; assert _normalize_database_url('postgresql://u:p@h/d').startswith('postgresql+psycopg://')"
     startCommand: gunicorn --bind 0.0.0.0:$PORT --timeout 120 web:app
     healthCheckPath: /health
     envVars:
@@ -48,7 +48,7 @@ services:
     name: wc-arb-board-worker
     env: python
     plan: starter
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python -c "import psycopg; from app.db import _normalize_database_url; assert _normalize_database_url('postgresql://u:p@h/d').startswith('postgresql+psycopg://')"
     startCommand: python -u worker.py
     envVars:
       - key: PYTHON_VERSION
