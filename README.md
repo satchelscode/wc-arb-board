@@ -15,11 +15,23 @@ Lines that exist on just one book are never shown.
 
 ```bash
 cp .env.example .env
-# Edit .env — set ODDS_API_KEY and Falcon credentials
-pip install -r requirements.txt
-python worker.py   # terminal 1 — polls every SCAN_INTERVAL_SECONDS
-python web.py      # terminal 2 — http://localhost:5000
 ```
+
+Edit `.env` and set at least `ODDS_API_KEY`. For ACE (Falcon) lines, also set `FALCON_USERNAME` and `FALCON_PASSWORD`.
+
+On macOS use **`python3`** (not `python`):
+
+```bash
+pip3 install -r requirements.txt
+
+# Terminal 1 — background scanner
+python3 worker.py
+
+# Terminal 2 — dashboard
+python3 web.py
+```
+
+Open **http://localhost:5001** (set `PORT=5001` in `.env` if 5000 is taken by AirPlay on macOS).
 
 ## Deploy (Render)
 
