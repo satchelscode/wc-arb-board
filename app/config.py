@@ -84,12 +84,19 @@ BUCKEYE2_ENABLED = _env_truthy("BUCKEYE2_ENABLED", "false")
 BUCKEYE2_USERNAME = os.getenv("BUCKEYE2_USERNAME", "").strip()
 BUCKEYE2_PASSWORD = os.getenv("BUCKEYE2_PASSWORD", "").strip()
 BUCKEYE2_AUTH_USERID = os.getenv("BUCKEYE2_AUTH_USERID", "").strip()
+BUCKEYE2_BEARER_TOKEN = os.getenv("BUCKEYE2_BEARER_TOKEN", "").strip()
 BUCKEYE2_API_ORIGIN = os.getenv("BUCKEYE2_API_ORIGIN", "https://www.kraken69.com").strip()
-BUCKEYE2_REFERER = os.getenv("BUCKEYE2_REFERER", "https://www.kraken69.com/v2/").strip()
+BUCKEYE2_DOMAIN = os.getenv("BUCKEYE2_DOMAIN", "kraken69.com").strip()
+BUCKEYE2_REFERER = os.getenv("BUCKEYE2_REFERER", "https://www.kraken69.com/").strip()
 BUCKEYE2_LOGIN_URL = os.getenv(
     "BUCKEYE2_LOGIN_URL",
-    "https://www.kraken69.com/cloud/api/Account/Login",
+    "https://www.kraken69.com/cloud/api/System/authenticateCustomer",
 ).strip()
+BUCKEYE2_RENEW_URL = os.getenv(
+    "BUCKEYE2_RENEW_URL",
+    "https://www.kraken69.com/cloud/api/System/renewToken",
+).strip()
+BUCKEYE2_LOGIN_POST_BODY = os.getenv("BUCKEYE2_LOGIN_POST_BODY", "").strip()
 BUCKEYE2_LINES_URL = os.getenv(
     "BUCKEYE2_LINES_URL",
     "https://www.kraken69.com/cloud/api/Lines/Get_LeagueLines2",

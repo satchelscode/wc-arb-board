@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 
-from app.buckeye2_auth import buckeye2_auth_headers
+from app.buckeye2_auth import buckeye2_auth_headers, invalidate_buckeye2_auth
 from app.config import (
     BUCKEYE2_AUTH_USERID,
     BUCKEYE2_LINES_POST_BODY,
@@ -49,22 +49,35 @@ def _lines_request_body() -> dict[str, Any]:
     }
 
 
+def _fetch_lines_once(headers: dict[str, str], url: str) -> requests.Response:
+    return requests.post(
+        url, headers=headers, json=_lines_request_body(), timeout=35
+    )
+
+
 def fetch_buckeye2_lines() -> Any | None:
     headers = buckeye2_auth_headers()
     if headers is None:
-        log.warning("Buckeye2: no auth headers (set username/password or extra headers)")
+        log.warning(
+            "Buckeye2: no auth headers (set username/password, BUCKEYE2_BEARER_TOKEN, or extra headers)"
+        )
         return None
     url = (BUCKEYE2_LINES_URL or "").strip()
     if not url:
         log.warning("Buckeye2: BUCKEYE2_LINES_URL is not set")
         return None
     try:
-        response = requests.post(
-            url, headers=headers, json=_lines_request_body(), timeout=35
-        )
+        response = _fetch_lines_once(headers, url)
         if response.status_code == 401:
-            log.warning("Buckeye2 lines 401 — check credentials")
-            return None
+            invalidate_buckeye2_auth()
+            headers = buckeye2_auth_headers(force_refresh=True)
+            if headers is None:
+                log.warning("Buckeye2 lines 401 — check credentials")
+                return None
+            response = _fetch_lines_once(headers, url)
+            if response.status_code == 401:
+                log.warning("Buckeye2 lines 401 after re-login — check credentials")
+                return None
         response.raise_for_status()
         return response.json()
     except (requests.RequestException, ValueError, json.JSONDecodeError) as exc:
