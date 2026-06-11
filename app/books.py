@@ -5,6 +5,7 @@ from __future__ import annotations
 # Internal scrape keys -> user-facing book id
 BOOK_ALIASES: dict[str, str] = {
     "falcon": "ace",  # legacy snapshots before rename
+    "betonlineag": "betonline",  # Odds API key; user-facing label
 }
 
 

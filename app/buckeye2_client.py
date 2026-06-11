@@ -9,9 +9,44 @@ from typing import Any
 import requests
 
 from app.buckeye2_auth import buckeye2_auth_headers
-from app.config import BUCKEYE2_LINES_POST_BODY, BUCKEYE2_LINES_URL
+from app.config import (
+    BUCKEYE2_AUTH_USERID,
+    BUCKEYE2_LINES_POST_BODY,
+    BUCKEYE2_LINES_URL,
+    BUCKEYE2_USERNAME,
+)
 
 log = logging.getLogger(__name__)
+
+
+def _lines_request_body() -> dict[str, Any]:
+    raw = (BUCKEYE2_LINES_POST_BODY or "").strip()
+    if raw and raw not in ("", "{}"):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            log.warning("BUCKEYE2_LINES_POST_BODY is not valid JSON; using default")
+    customer = (BUCKEYE2_AUTH_USERID or BUCKEYE2_USERNAME or "").strip()
+    return {
+        "customerID": customer,
+        "operation": "Get_LeagueLines2",
+        "sportType": "SOCCER",
+        "sportSubType": "WORLD CUP",
+        "office": "PPHINSIDER",
+        "wagerType": "Straight",
+        "period": "Game",
+        "periodNumber": "0",
+        "periods": 0,
+        "RRO": 1,
+        "correlationID": "",
+        "hourFilter": 0,
+        "keyword": "",
+        "placeLateFlag": False,
+        "propDescription": "",
+        "rotOrder": 0,
+    }
 
 
 def fetch_buckeye2_lines() -> Any | None:
@@ -23,10 +58,10 @@ def fetch_buckeye2_lines() -> Any | None:
     if not url:
         log.warning("Buckeye2: BUCKEYE2_LINES_URL is not set")
         return None
-    body_raw = (BUCKEYE2_LINES_POST_BODY or "").strip()
     try:
-        body = json.loads(body_raw) if body_raw else {}
-        response = requests.post(url, headers=headers, json=body, timeout=35)
+        response = requests.post(
+            url, headers=headers, json=_lines_request_body(), timeout=35
+        )
         if response.status_code == 401:
             log.warning("Buckeye2 lines 401 — check credentials")
             return None

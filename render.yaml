@@ -84,7 +84,7 @@ services:
       - key: BUCKEYE2_LOGIN_URL
         sync: false
       - key: ODDS_API_BOOKS
-        value: "pinnacle,draftkings,fanduel"
+        value: "pinnacle,draftkings,fanduel,betonlineag,bookmaker"
       - key: ODDS_API_MARKETS
         value: "team_totals,totals"
 

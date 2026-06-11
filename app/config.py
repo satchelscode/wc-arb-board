@@ -8,7 +8,10 @@ def _env_truthy(name: str, default: str = "false") -> bool:
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "").strip()
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 ODDS_API_SPORT_KEY = os.getenv("ODDS_API_SPORT_KEY", "soccer_fifa_world_cup").strip()
-ODDS_API_BOOKS = os.getenv("ODDS_API_BOOKS", "pinnacle,draftkings,fanduel").strip()
+ODDS_API_BOOKS = os.getenv(
+    "ODDS_API_BOOKS",
+    "pinnacle,draftkings,fanduel,betonlineag,bookmaker",
+).strip()
 ODDS_API_REGIONS = os.getenv("ODDS_API_REGIONS", "us,eu").strip()
 ODDS_API_MARKETS = os.getenv("ODDS_API_MARKETS", "team_totals,totals").strip()
 ODDS_API_MAX_EVENTS = int(os.getenv("ODDS_API_MAX_EVENTS", "80"))
