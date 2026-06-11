@@ -85,7 +85,9 @@
       function fmtPrice(n) { return n > 0 ? `+${n}` : `${n}`; }
       function fmtBook(name) {
         const key = String(name || "").toLowerCase();
-        if (key === "falcon") return "ACE";
+        if (key === "falcon" || key === "ace") return "ACE";
+        if (key === "metallic") return "METALLIC";
+        if (key === "buckeye2") return "BUCKEYE2";
         return key ? key.toUpperCase() : "—";
       }
       function fmtScanned(iso) {

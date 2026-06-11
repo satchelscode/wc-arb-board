@@ -23,15 +23,11 @@ services:
         sync: false
       - key: METALLIC_ENABLED
         value: "false"
-      - key: METALLIC_LOGIN_URL
-        sync: false
-      - key: METALLIC_STRAIGHT_URL
-        sync: false
-      - key: METALLIC_WC_HELPER_URL
-        sync: false
       - key: METALLIC_USERNAME
         sync: false
       - key: METALLIC_PASSWORD
+        sync: false
+      - key: METALLIC_SCHEDULE_POST_BODY
         sync: false
       - key: BUCKEYE2_ENABLED
         value: "false"
@@ -69,15 +65,11 @@ services:
         sync: false
       - key: METALLIC_ENABLED
         value: "false"
-      - key: METALLIC_LOGIN_URL
-        sync: false
-      - key: METALLIC_STRAIGHT_URL
-        sync: false
-      - key: METALLIC_WC_HELPER_URL
-        sync: false
       - key: METALLIC_USERNAME
         sync: false
       - key: METALLIC_PASSWORD
+        sync: false
+      - key: METALLIC_SCHEDULE_POST_BODY
         sync: false
       - key: BUCKEYE2_ENABLED
         value: "false"

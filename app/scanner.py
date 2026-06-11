@@ -16,6 +16,7 @@ from app.ace_sites import configured_ace_sites
 from app.arb_engine import Offer, arb_to_dict, find_cross_book_arbs
 from app.books import normalize_book_key
 from app.config import (
+    METALLIC_ENABLED,
     ODDS_API_BASE,
     ODDS_API_BOOKS,
     ODDS_API_KEY,
@@ -24,6 +25,8 @@ from app.config import (
     ODDS_API_REGIONS,
     ODDS_API_SPORT_KEY,
 )
+from app.metallic_client import fetch_metallic_schedule
+from app.metallic_parser import MetallicLine, extract_wc_lines_from_schedule
 from app.events import matchup_key, matchup_label, opponent_in_event
 from app.models import ArbBoardSnapshot, utc_now
 from app.names import team_norm, team_total_label
@@ -85,6 +88,63 @@ def _team_lines_to_offers(lines: list[TeamTotalLine], *, book: str) -> list[Offe
                     american=int(line.under_price),
                 )
             )
+    return offers
+
+
+def _metallic_lines_to_offers(lines: list[MetallicLine]) -> list[Offer]:
+    offers: list[Offer] = []
+    for line in lines:
+        pt = round(line.line, 2)
+        matchup = matchup_key(line.team, line.opponent)
+        fixture = matchup_label(line.team, line.opponent)
+        if line.market == "totals":
+            label = f"{fixture} total {pt:g}"
+            participant = "game"
+        else:
+            label = team_total_label(line.team, pt)
+            participant = line.team
+        if line.over_price is not None:
+            offers.append(
+                Offer(
+                    book="metallic",
+                    market=line.market,
+                    label=label,
+                    event_date=line.event_date,
+                    event_label=fixture,
+                    participant=participant,
+                    matchup=matchup,
+                    line=pt,
+                    side="over",
+                    american=int(line.over_price),
+                )
+            )
+        if line.under_price is not None:
+            offers.append(
+                Offer(
+                    book="metallic",
+                    market=line.market,
+                    label=label,
+                    event_date=line.event_date,
+                    event_label=fixture,
+                    participant=participant,
+                    matchup=matchup,
+                    line=pt,
+                    side="under",
+                    american=int(line.under_price),
+                )
+            )
+    return offers
+
+
+def collect_metallic_offers() -> list[Offer]:
+    if not METALLIC_ENABLED:
+        return []
+    payload = fetch_metallic_schedule()
+    if payload is None:
+        return []
+    lines = extract_wc_lines_from_schedule(payload)
+    offers = _metallic_lines_to_offers(lines)
+    log.info("Metallic: %s priced WC lines", len(lines))
     return offers
 
 
@@ -273,8 +333,9 @@ def _normalize_snapshot_books(payload: dict[str, Any]) -> dict[str, Any]:
 
 def refresh_snapshot(*, session) -> dict[str, Any]:
     ace = collect_ace_offers()
+    metallic = collect_metallic_offers()
     api = collect_odds_api_offers()
-    all_offers = ace + api
+    all_offers = ace + metallic + api
     arbs = find_cross_book_arbs(all_offers)
 
     books = sorted({o.book for o in all_offers})

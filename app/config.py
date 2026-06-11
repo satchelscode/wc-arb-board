@@ -51,19 +51,30 @@ BETVEGAS23_USERNAME_FIELD = os.getenv("BETVEGAS23_USERNAME_FIELD", "Account").st
 BETVEGAS23_PASSWORD_FIELD = os.getenv("BETVEGAS23_PASSWORD_FIELD", "Password").strip()
 BETVEGAS23_LOGIN_EXTRA_FORM_JSON = os.getenv("BETVEGAS23_LOGIN_EXTRA_FORM_JSON", "").strip()
 
+# Metallic = Steam22 player API (steam22.com), not ACE backend.
 METALLIC_ENABLED = _env_truthy("METALLIC_ENABLED", "false")
-METALLIC_LOGIN_URL = os.getenv("METALLIC_LOGIN_URL", "").strip()
-METALLIC_STRAIGHT_URL = os.getenv("METALLIC_STRAIGHT_URL", "").strip()
-METALLIC_WC_HELPER_URL = os.getenv(
-    "METALLIC_WC_HELPER_URL",
-    "",
-).strip()
 METALLIC_USERNAME = os.getenv("METALLIC_USERNAME", "").strip()
 METALLIC_PASSWORD = os.getenv("METALLIC_PASSWORD", "").strip()
-METALLIC_COOKIE = os.getenv("METALLIC_COOKIE", "").strip()
-METALLIC_USERNAME_FIELD = os.getenv("METALLIC_USERNAME_FIELD", "Account").strip()
-METALLIC_PASSWORD_FIELD = os.getenv("METALLIC_PASSWORD_FIELD", "Password").strip()
-METALLIC_LOGIN_EXTRA_FORM_JSON = os.getenv("METALLIC_LOGIN_EXTRA_FORM_JSON", "").strip()
+METALLIC_LOGIN_URL = os.getenv(
+    "METALLIC_LOGIN_URL",
+    "https://steam22.com/player-api/identity/customerLogin/",
+).strip()
+METALLIC_RENEW_URL = os.getenv(
+    "METALLIC_RENEW_URL",
+    "https://steam22.com/player-api/identity/renewToken",
+).strip()
+METALLIC_SCHEDULE_URL = os.getenv(
+    "METALLIC_SCHEDULE_URL",
+    "https://steam22.com/player-api/api/wager/schedules/S/0",
+).strip()
+METALLIC_SCHEDULE_POST_BODY = os.getenv(
+    "METALLIC_SCHEDULE_POST_BODY",
+    '{"id":0,"languageID":1,"lineType":0,"version":"1.3.47"}',
+).strip()
+METALLIC_LOGIN_WEBSITE = os.getenv("METALLIC_LOGIN_WEBSITE", "steam22.com").strip()
+METALLIC_JS_VERSION = os.getenv("METALLIC_JS_VERSION", "1.3.47").strip()
+METALLIC_REFERER = os.getenv("METALLIC_REFERER", "https://steam22.com/v2/").strip()
+METALLIC_EXTRA_HEADERS_JSON = os.getenv("METALLIC_EXTRA_HEADERS_JSON", "").strip()
 
 BUCKEYE2_ENABLED = _env_truthy("BUCKEYE2_ENABLED", "false")
 BUCKEYE2_LOGIN_URL = os.getenv("BUCKEYE2_LOGIN_URL", "").strip()
