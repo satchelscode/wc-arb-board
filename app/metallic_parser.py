@@ -269,6 +269,66 @@ def _lines_from_game_totals(
     ]
 
 
+def _roots_from_payload(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        return [payload]
+    return []
+
+
+def _lines_from_schedule_tree(payload: Any) -> list[MetallicLine]:
+    """Parse Steam22 schedule array: [{sc: {schl: [{d, g: [{t, ts: [{n, ls}]}]}]}}]."""
+    out: list[MetallicLine] = []
+    for root in _roots_from_payload(payload):
+        sc = root.get("sc")
+        if not isinstance(sc, dict):
+            continue
+        for schl in sc.get("schl") or []:
+            if not isinstance(schl, dict):
+                continue
+            block_date = _epoch_to_et_date(schl.get("d")) or _parse_date_text(
+                str(schl.get("l") or "")
+            )
+            for game in schl.get("g") or []:
+                if not isinstance(game, dict):
+                    continue
+                game_date = _epoch_to_et_date(game.get("t")) or block_date
+                teams = [t for t in (game.get("ts") or []) if isinstance(t, dict)]
+                names = [_team_name(t) for t in teams]
+                for idx, team_row in enumerate(teams):
+                    team = _team_name(team_row)
+                    if not team:
+                        continue
+                    others = [n for j, n in enumerate(names) if j != idx and n]
+                    opponent = others[0] if len(others) == 1 else ""
+                    if len(others) >= 2:
+                        opponent = others[1] if idx == 0 else others[0]
+                    ls = team_row.get("ls")
+                    if not isinstance(ls, dict):
+                        continue
+                    for line in _lines_from_team_row(
+                        team=team,
+                        opponent=opponent,
+                        event_date=game_date,
+                        ls=ls,
+                    ):
+                        out.append(line)
+                if len(teams) == 2:
+                    away_ls = teams[0].get("ls") if isinstance(teams[0].get("ls"), dict) else {}
+                    home_ls = teams[1].get("ls") if isinstance(teams[1].get("ls"), dict) else {}
+                    out.extend(
+                        _lines_from_game_totals(
+                            away=names[0],
+                            home=names[1],
+                            event_date=game_date,
+                            away_ls=away_ls,
+                            home_ls=home_ls,
+                        )
+                    )
+    return out
+
+
 def extract_wc_lines_from_schedule(payload: Any) -> list[MetallicLine]:
     if not isinstance(payload, (dict, list)):
         return []
@@ -308,6 +368,13 @@ def extract_wc_lines_from_schedule(payload: Any) -> list[MetallicLine]:
             over_price=over,
             under_price=under,
         )
+
+    tree_lines = _lines_from_schedule_tree(payload)
+    for line in tree_lines:
+        _add(line)
+
+    if tree_lines:
+        return list(found.values())
 
     for node in _iter_nodes(payload):
         maybe_date = _maybe_date_from_node(node)

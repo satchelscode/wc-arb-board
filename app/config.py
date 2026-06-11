@@ -70,10 +70,7 @@ METALLIC_SCHEDULE_URL = os.getenv(
     "METALLIC_SCHEDULE_URL",
     "https://steam22.com/player-api/api/wager/schedules/S/0",
 ).strip()
-METALLIC_SCHEDULE_POST_BODY = os.getenv(
-    "METALLIC_SCHEDULE_POST_BODY",
-    '{"id":0,"languageID":1,"lineType":0,"version":"1.3.47"}',
-).strip()
+METALLIC_SCHEDULE_POST_BODY = os.getenv("METALLIC_SCHEDULE_POST_BODY", "").strip()
 METALLIC_LOGIN_WEBSITE = os.getenv("METALLIC_LOGIN_WEBSITE", "steam22.com").strip()
 METALLIC_JS_VERSION = os.getenv("METALLIC_JS_VERSION", "1.3.47").strip()
 METALLIC_REFERER = os.getenv("METALLIC_REFERER", "https://steam22.com/v2/").strip()

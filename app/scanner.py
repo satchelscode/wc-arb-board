@@ -151,7 +151,10 @@ def collect_metallic_offers() -> list[Offer]:
         return []
     lines = extract_wc_lines_from_schedule(payload)
     offers = _external_lines_to_offers(lines, book="metallic")
-    log.info("Metallic: %s priced WC lines", len(lines))
+    if not lines:
+        log.info("Metallic: 0 priced WC lines (check schedule POST body / sport menu)")
+    else:
+        log.info("Metallic: %s priced WC lines", len(lines))
     return offers
 
 
