@@ -24,16 +24,6 @@ from app.config import (
     FALCON_USERNAME,
     FALCON_USERNAME_FIELD,
     FALCON_WC_HELPER_URL,
-    BUCKEYE2_COOKIE,
-    BUCKEYE2_ENABLED,
-    BUCKEYE2_LOGIN_EXTRA_FORM_JSON,
-    BUCKEYE2_LOGIN_URL,
-    BUCKEYE2_PASSWORD,
-    BUCKEYE2_PASSWORD_FIELD,
-    BUCKEYE2_STRAIGHT_URL,
-    BUCKEYE2_USERNAME,
-    BUCKEYE2_USERNAME_FIELD,
-    BUCKEYE2_WC_HELPER_URL,
 )
 
 
@@ -119,21 +109,6 @@ def configured_ace_sites() -> list[AceSite]:
             username_field=FALCON_USERNAME_FIELD,
             password_field=FALCON_PASSWORD_FIELD,
             login_extra_json=FALCON_LOGIN_EXTRA_FORM_JSON,
-        ),
-        _build_site(
-            key="buckeye2",
-            label="Buckeye2",
-            enabled=BUCKEYE2_ENABLED,
-            default_origin="https://backend.buckeye2.com",
-            login_url=BUCKEYE2_LOGIN_URL,
-            straight_url=BUCKEYE2_STRAIGHT_URL,
-            wc_helper_url=BUCKEYE2_WC_HELPER_URL,
-            cookie=BUCKEYE2_COOKIE,
-            username=BUCKEYE2_USERNAME,
-            password=BUCKEYE2_PASSWORD,
-            username_field=BUCKEYE2_USERNAME_FIELD,
-            password_field=BUCKEYE2_PASSWORD_FIELD,
-            login_extra_json=BUCKEYE2_LOGIN_EXTRA_FORM_JSON,
         ),
         _build_site(
             key="betvegas23",

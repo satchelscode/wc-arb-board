@@ -31,15 +31,15 @@ services:
         sync: false
       - key: BUCKEYE2_ENABLED
         value: "false"
-      - key: BUCKEYE2_LOGIN_URL
-        sync: false
-      - key: BUCKEYE2_STRAIGHT_URL
-        sync: false
-      - key: BUCKEYE2_WC_HELPER_URL
-        sync: false
       - key: BUCKEYE2_USERNAME
         sync: false
       - key: BUCKEYE2_PASSWORD
+        sync: false
+      - key: BUCKEYE2_AUTH_USERID
+        sync: false
+      - key: BUCKEYE2_LINES_POST_BODY
+        sync: false
+      - key: BUCKEYE2_LOGIN_URL
         sync: false
 
   - type: worker
@@ -73,15 +73,15 @@ services:
         sync: false
       - key: BUCKEYE2_ENABLED
         value: "false"
-      - key: BUCKEYE2_LOGIN_URL
-        sync: false
-      - key: BUCKEYE2_STRAIGHT_URL
-        sync: false
-      - key: BUCKEYE2_WC_HELPER_URL
-        sync: false
       - key: BUCKEYE2_USERNAME
         sync: false
       - key: BUCKEYE2_PASSWORD
+        sync: false
+      - key: BUCKEYE2_AUTH_USERID
+        sync: false
+      - key: BUCKEYE2_LINES_POST_BODY
+        sync: false
+      - key: BUCKEYE2_LOGIN_URL
         sync: false
       - key: ODDS_API_BOOKS
         value: "pinnacle,draftkings,fanduel"

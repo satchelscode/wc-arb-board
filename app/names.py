@@ -10,7 +10,9 @@ _WHITESPACE = re.compile(r"\s+")
 _TEAM_TOTAL_SUFFIX = re.compile(r"\s*\(TEAM TOTAL\)\s*$", re.I)
 
 WC_TEAM_ALIASES: dict[str, frozenset[str]] = {
-    "bosnia and herzegovina": frozenset({"bosnia and herzegovina", "bosnia herzegovina"}),
+    "bosnia and herzegovina": frozenset(
+        {"bosnia and herzegovina", "bosnia herzegovina", "bosnia & herzegovina"}
+    ),
     "cape verde": frozenset({"cape verde", "cabo verde"}),
     "congo dr": frozenset(
         {"congo dr", "dr congo", "democratic republic of the congo", "congo democratic republic"}

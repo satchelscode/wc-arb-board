@@ -15,7 +15,10 @@ from app.ace_parser import TeamTotalLine, extract_team_totals_from_helper
 from app.ace_sites import configured_ace_sites
 from app.arb_engine import Offer, arb_to_dict, find_cross_book_arbs
 from app.books import normalize_book_key
+from app.buckeye2_client import fetch_buckeye2_lines
+from app.buckeye2_parser import BuckeyeLine, extract_wc_lines_from_buckeye2
 from app.config import (
+    BUCKEYE2_ENABLED,
     METALLIC_ENABLED,
     ODDS_API_BASE,
     ODDS_API_BOOKS,
@@ -91,7 +94,11 @@ def _team_lines_to_offers(lines: list[TeamTotalLine], *, book: str) -> list[Offe
     return offers
 
 
-def _metallic_lines_to_offers(lines: list[MetallicLine]) -> list[Offer]:
+def _external_lines_to_offers(
+    lines: list[MetallicLine] | list[BuckeyeLine],
+    *,
+    book: str,
+) -> list[Offer]:
     offers: list[Offer] = []
     for line in lines:
         pt = round(line.line, 2)
@@ -106,7 +113,7 @@ def _metallic_lines_to_offers(lines: list[MetallicLine]) -> list[Offer]:
         if line.over_price is not None:
             offers.append(
                 Offer(
-                    book="metallic",
+                    book=book,
                     market=line.market,
                     label=label,
                     event_date=line.event_date,
@@ -121,7 +128,7 @@ def _metallic_lines_to_offers(lines: list[MetallicLine]) -> list[Offer]:
         if line.under_price is not None:
             offers.append(
                 Offer(
-                    book="metallic",
+                    book=book,
                     market=line.market,
                     label=label,
                     event_date=line.event_date,
@@ -143,8 +150,20 @@ def collect_metallic_offers() -> list[Offer]:
     if payload is None:
         return []
     lines = extract_wc_lines_from_schedule(payload)
-    offers = _metallic_lines_to_offers(lines)
+    offers = _external_lines_to_offers(lines, book="metallic")
     log.info("Metallic: %s priced WC lines", len(lines))
+    return offers
+
+
+def collect_buckeye2_offers() -> list[Offer]:
+    if not BUCKEYE2_ENABLED:
+        return []
+    payload = fetch_buckeye2_lines()
+    if payload is None:
+        return []
+    lines = extract_wc_lines_from_buckeye2(payload)
+    offers = _external_lines_to_offers(lines, book="buckeye2")
+    log.info("Buckeye2: %s priced WC lines", len(lines))
     return offers
 
 
@@ -334,8 +353,9 @@ def _normalize_snapshot_books(payload: dict[str, Any]) -> dict[str, Any]:
 def refresh_snapshot(*, session) -> dict[str, Any]:
     ace = collect_ace_offers()
     metallic = collect_metallic_offers()
+    buckeye2 = collect_buckeye2_offers()
     api = collect_odds_api_offers()
-    all_offers = ace + metallic + api
+    all_offers = ace + metallic + buckeye2 + api
     arbs = find_cross_book_arbs(all_offers)
 
     books = sorted({o.book for o in all_offers})

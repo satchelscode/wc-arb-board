@@ -76,13 +76,20 @@ METALLIC_JS_VERSION = os.getenv("METALLIC_JS_VERSION", "1.3.47").strip()
 METALLIC_REFERER = os.getenv("METALLIC_REFERER", "https://steam22.com/v2/").strip()
 METALLIC_EXTRA_HEADERS_JSON = os.getenv("METALLIC_EXTRA_HEADERS_JSON", "").strip()
 
+# Buckeye2 = kraken69.com cloud API (not ACE backend).
 BUCKEYE2_ENABLED = _env_truthy("BUCKEYE2_ENABLED", "false")
-BUCKEYE2_LOGIN_URL = os.getenv("BUCKEYE2_LOGIN_URL", "").strip()
-BUCKEYE2_STRAIGHT_URL = os.getenv("BUCKEYE2_STRAIGHT_URL", "").strip()
-BUCKEYE2_WC_HELPER_URL = os.getenv("BUCKEYE2_WC_HELPER_URL", "").strip()
 BUCKEYE2_USERNAME = os.getenv("BUCKEYE2_USERNAME", "").strip()
 BUCKEYE2_PASSWORD = os.getenv("BUCKEYE2_PASSWORD", "").strip()
-BUCKEYE2_COOKIE = os.getenv("BUCKEYE2_COOKIE", "").strip()
-BUCKEYE2_USERNAME_FIELD = os.getenv("BUCKEYE2_USERNAME_FIELD", "Account").strip()
-BUCKEYE2_PASSWORD_FIELD = os.getenv("BUCKEYE2_PASSWORD_FIELD", "Password").strip()
-BUCKEYE2_LOGIN_EXTRA_FORM_JSON = os.getenv("BUCKEYE2_LOGIN_EXTRA_FORM_JSON", "").strip()
+BUCKEYE2_AUTH_USERID = os.getenv("BUCKEYE2_AUTH_USERID", "").strip()
+BUCKEYE2_API_ORIGIN = os.getenv("BUCKEYE2_API_ORIGIN", "https://www.kraken69.com").strip()
+BUCKEYE2_REFERER = os.getenv("BUCKEYE2_REFERER", "https://www.kraken69.com/v2/").strip()
+BUCKEYE2_LOGIN_URL = os.getenv(
+    "BUCKEYE2_LOGIN_URL",
+    "https://www.kraken69.com/cloud/api/Account/Login",
+).strip()
+BUCKEYE2_LINES_URL = os.getenv(
+    "BUCKEYE2_LINES_URL",
+    "https://www.kraken69.com/cloud/api/Lines/Get_LeagueLines2",
+).strip()
+BUCKEYE2_LINES_POST_BODY = os.getenv("BUCKEYE2_LINES_POST_BODY", "{}").strip()
+BUCKEYE2_EXTRA_HEADERS_JSON = os.getenv("BUCKEYE2_EXTRA_HEADERS_JSON", "").strip()
