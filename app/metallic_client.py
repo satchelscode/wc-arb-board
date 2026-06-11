@@ -96,30 +96,58 @@ def _collect_sport_requests(
     return found
 
 
+def _sports_menu_urls(schedule_url: str) -> list[str]:
+    """Derive sports-menu URLs from the schedule endpoint (keep /S/0 suffix when present)."""
+    base = schedule_url.strip()
+    if not base:
+        return [
+            "https://steam22.com/player-api/api/wager/sportsavailablebyplayeronleague/S/0",
+            "https://steam22.com/player-api/api/wager/sportsavailablebyplayeronleague/",
+        ]
+    urls: list[str] = []
+    for pattern, repl in (
+        (r"wager/schedules/([^/]+/0)\s*$", r"wager/sportsavailablebyplayeronleague/\1"),
+        (r"wager/schedules/[^/]+/0\s*$", "wager/sportsavailablebyplayeronleague/"),
+    ):
+        candidate = re.sub(pattern, repl, base)
+        if candidate not in urls:
+            urls.append(candidate)
+    for fallback in (
+        "https://steam22.com/player-api/api/wager/sportsavailablebyplayeronleague/S/0",
+        "https://steam22.com/player-api/api/wager/sportsavailablebyplayeronleague/",
+    ):
+        if fallback not in urls:
+            urls.append(fallback)
+    return urls
+
+
 def _fetch_sports_menu(token: str) -> Any | None:
     schedule_url = (METALLIC_SCHEDULE_URL or "").strip()
-    if not schedule_url:
-        return None
-    # .../wager/schedules/S/0 -> .../wager/sportsavailablebyplayeronleague/
-    menu_url = re.sub(
-        r"wager/schedules/[^/]+/0\s*$",
-        "wager/sportsavailablebyplayeronleague/",
-        schedule_url,
-    )
-    if menu_url == schedule_url:
-        menu_url = "https://steam22.com/player-api/api/wager/sportsavailablebyplayeronleague/"
-    try:
-        response = requests.get(
-            menu_url, headers=_auth_headers(token), timeout=35
-        )
-        if response.status_code == 401:
-            log.warning("Metallic sports menu 401 — check credentials")
-            return None
-        response.raise_for_status()
-        return response.json()
-    except (requests.RequestException, ValueError, json.JSONDecodeError) as exc:
-        log.warning("Metallic sports menu fetch failed: %s", exc)
-        return None
+    headers = _auth_headers(token)
+    last_error: str | None = None
+    for menu_url in _sports_menu_urls(schedule_url):
+        for method, body in (("GET", None), ("POST", {}), ("POST", [])):
+            try:
+                if method == "GET":
+                    response = requests.get(menu_url, headers=headers, timeout=35)
+                else:
+                    response = requests.post(
+                        menu_url, headers=headers, json=body, timeout=35
+                    )
+                if response.status_code == 401:
+                    log.warning("Metallic sports menu 401 — check credentials")
+                    return None
+                if response.status_code == 404:
+                    last_error = f"404 for {method} {menu_url}"
+                    continue
+                response.raise_for_status()
+                payload = response.json()
+                log.info("Metallic sports menu ok (%s %s)", method, menu_url)
+                return payload
+            except (requests.RequestException, ValueError, json.JSONDecodeError) as exc:
+                last_error = str(exc)
+    log.warning("Metallic sports menu fetch failed: %s", last_error or "no candidates")
+    return None
 
 
 def _schedule_post_bodies(token: str) -> list[Any]:
