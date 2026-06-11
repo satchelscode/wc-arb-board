@@ -103,6 +103,8 @@ services:
         value: "KXWCGAME,KXWCTOTAL,KXWCTEAMTOTAL,KXWCSPREAD,KXWCGOAL"
       - key: ARB_EXCLUDE_BOOKS
         value: "kalshi"
+      - key: ARB_MARKETS
+        value: "team_totals,totals"
 
 databases:
   - name: wc-arb-db

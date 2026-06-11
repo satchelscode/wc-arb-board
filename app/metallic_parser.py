@@ -9,7 +9,7 @@ from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 from app.events import matchup_key, matchup_label
-from app.names import display_team_name, team_norm
+from app.names import display_team_name, strip_team_total_suffix, team_norm
 
 _ET = ZoneInfo("America/New_York")
 _DATE_IN_TEXT = re.compile(
@@ -124,9 +124,11 @@ def _cell_point_odds(cell: dict[str, Any]) -> tuple[float | None, int | None]:
 
 def _side_from_bet_id(cell: dict[str, Any]) -> str | None:
     bet_id = str(cell.get("i") or "")
-    if bet_id.startswith("4_"):
+    prefix = bet_id.split("_", 1)[0] if bet_id else ""
+    # Steam22: 4/5 = game total, 6/7 = team total over, 8/9 = team total under.
+    if prefix in ("4", "6", "7"):
         return "over"
-    if bet_id.startswith("5_"):
+    if prefix in ("5", "8", "9"):
         return "under"
     return None
 
@@ -185,6 +187,20 @@ def _team_totals_from_ls(ls: dict[str, Any]) -> list[tuple[float, int | None, in
         point, odds = _cell_point_odds(cell)
         if point is not None and odds is not None:
             under_by_point[point] = odds
+    if not over_by_point and not under_by_point:
+        for cell in ls.get("t") or []:
+            if not isinstance(cell, dict):
+                continue
+            side = _side_from_bet_id(cell)
+            if side not in ("over", "under"):
+                continue
+            point, odds = _cell_point_odds(cell)
+            if point is None or odds is None:
+                continue
+            if side == "over":
+                over_by_point[point] = odds
+            else:
+                under_by_point[point] = odds
     lines: list[tuple[float, int | None, int | None]] = []
     for point in sorted(set(over_by_point) | set(under_by_point)):
         over_p = over_by_point.get(point)
@@ -199,7 +215,7 @@ def _team_name(node: dict[str, Any]) -> str:
     for key in ("n", "m", "tn"):
         val = node.get(key)
         if isinstance(val, str) and val.strip():
-            return val.strip()
+            return strip_team_total_suffix(val.strip())
     return ""
 
 

@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from itertools import product
 
-from app.config import ARB_EXCLUDE_BOOKS, MIN_EDGE_PCT
-from app.names import display_team_name, team_norm, team_total_label
+from app.config import ARB_EXCLUDE_BOOKS, ARB_MARKETS, MIN_EDGE_PCT
+from app.names import display_team_name, normalize_name, team_norm, team_total_label
 
 
 @dataclass(frozen=True)
@@ -56,17 +56,42 @@ def _parse_csv_books(raw: str) -> frozenset[str]:
     return frozenset(x.strip().lower() for x in (raw or "").split(",") if x.strip())
 
 
-def _group_key(offer: Offer) -> tuple[str, tuple[str, str], str, str, float]:
+def _parse_csv_markets(raw: str) -> frozenset[str]:
+    return frozenset(x.strip().lower() for x in (raw or "").split(",") if x.strip())
+
+
+def _period_tag(event_label: str) -> str:
+    label = (event_label or "").strip()
+    if label.upper().startswith("[1H]"):
+        return "1h"
+    if label.upper().startswith("[PROPS]"):
+        return "props"
+    if label.upper().startswith("[FUTURES]"):
+        return "futures"
+    return "game"
+
+
+def _group_key(offer: Offer) -> tuple[str, str, tuple[str, str], str, str, float]:
     if offer.market == "team_totals":
         subject = team_norm(offer.participant)
+    elif offer.market == "props":
+        subject = normalize_name(offer.label)
     else:
         subject = " ".join(offer.event_label.lower().split())
-    return (offer.event_date, offer.matchup, subject, offer.market, round(offer.line, 2))
+    period = _period_tag(offer.event_label)
+    return (
+        offer.event_date,
+        period,
+        offer.matchup,
+        subject,
+        offer.market,
+        round(offer.line, 2),
+    )
 
 
-def _offer_identity_key(offer: Offer) -> tuple[str, str, tuple[str, str], str, float, str]:
-    event_date, matchup, subject, market, line = _group_key(offer)
-    return (offer.book, market, event_date, matchup, subject, line, offer.side)
+def _offer_identity_key(offer: Offer) -> tuple[str, str, str, tuple[str, str], str, float, str]:
+    event_date, period, matchup, subject, market, line = _group_key(offer)
+    return (offer.book, market, event_date, period, matchup, subject, line, offer.side)
 
 
 def dedupe_offers(offers: list[Offer]) -> list[Offer]:
@@ -132,15 +157,21 @@ def find_cross_book_arbs(offers: list[Offer]) -> list[Arb]:
     if excluded:
         offers = [o for o in offers if o.book.lower() not in excluded]
 
+    allowed_markets = _parse_csv_markets(ARB_MARKETS)
+    if allowed_markets:
+        offers = [o for o in offers if o.market.lower() in allowed_markets]
+
     offers = dedupe_offers(offers)
-    by_group: dict[tuple[str, tuple[str, str], str, str, float], list[Offer]] = {}
+    by_group: dict[
+        tuple[str, str, tuple[str, str], str, str, float], list[Offer]
+    ] = {}
     for offer in offers:
         by_group.setdefault(_group_key(offer), []).append(offer)
 
     arbs: list[Arb] = []
-    seen: set[tuple[str, tuple[str, str], str, str, float, str, str]] = set()
+    seen: set[tuple[str, str, tuple[str, str], str, str, float, str, str]] = set()
 
-    for (event_date, matchup, subject, market, line), group in by_group.items():
+    for (event_date, _period, matchup, subject, market, line), group in by_group.items():
         overs = _best_offer_per_book([o for o in group if o.side == "over"])
         unders = _best_offer_per_book([o for o in group if o.side == "under"])
         if not overs or not unders:
@@ -166,7 +197,16 @@ def find_cross_book_arbs(offers: list[Offer]) -> list[Arb]:
             edge = _edge_pct(over_o.american, under_o.american)
             if edge < MIN_EDGE_PCT - 1e-9:
                 continue
-            pair = (event_date, matchup, subject, market, line, over_o.book, under_o.book)
+            pair = (
+                event_date,
+                _period,
+                matchup,
+                subject,
+                market,
+                line,
+                over_o.book,
+                under_o.book,
+            )
             if pair in seen:
                 continue
             seen.add(pair)
