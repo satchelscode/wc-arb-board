@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -38,8 +39,6 @@ from app.metallic_parser import (
     MetallicOffer,
     extract_all_offers_from_schedule,
 )
-
-_METALLIC_GAME_CATEGORIES = frozenset({"game"})
 from app.events import matchup_key, matchup_label, opponent_in_event
 from app.models import ArbBoardSnapshot, utc_now
 from app.names import team_norm, team_total_label
@@ -48,6 +47,9 @@ from app.odds_client import fetch_events_for_sport
 log = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 _STATE_KEY = "latest"
+# Full-game main lines + WC props/futures from Metallic (exclude 1H — different period).
+_METALLIC_INGEST_CATEGORIES = frozenset({"game", "props", "futures"})
+_HALF_PROP_RE = re.compile(r"\b(1st\s*half|first\s*half|1h\b|in\s*1st)\b", re.I)
 
 
 def _parse_csv(raw: str) -> tuple[str, ...]:
@@ -111,10 +113,22 @@ def _offers_by_market(offers: list[Offer]) -> dict[str, int]:
     return counts
 
 
-def _offer_period(mo: MetallicOffer | AceOffer | KalshiOffer) -> str:
+def _prop_period(label: str) -> str:
+    if _HALF_PROP_RE.search(label or ""):
+        return "1h"
+    return "game"
+
+
+def _offer_period(
+    mo: MetallicOffer | AceOffer | KalshiOffer,
+    *,
+    label: str = "",
+) -> str:
     category = getattr(mo, "category", None)
     if category == "1h":
         return "1h"
+    if mo.market == "props":
+        return _prop_period(label or getattr(mo, "prop_detail", "") or mo.event_label)
     return "game"
 
 
@@ -173,7 +187,7 @@ def _parsed_offers_to_scanner(
                 line=mo.line,
                 side=mo.side,
                 american=int(mo.american),
-                period=_offer_period(mo),
+                period=_offer_period(mo, label=label),
             )
         )
     return out
@@ -235,7 +249,7 @@ def collect_metallic_offers() -> list[Offer]:
     if payload is None:
         return []
     parsed = extract_all_offers_from_schedule(payload)
-    parsed = [o for o in parsed if o.category in _METALLIC_GAME_CATEGORIES]
+    parsed = [o for o in parsed if o.category in _METALLIC_INGEST_CATEGORIES]
     offers = _parsed_offers_to_scanner(parsed, book="metallic")
     if not offers:
         log.info("Metallic: 0 offers (check schedule POST body / sport menu)")

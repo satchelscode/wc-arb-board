@@ -104,7 +104,7 @@ services:
       - key: ARB_EXCLUDE_BOOKS
         value: "kalshi"
       - key: ARB_MARKETS
-        value: "team_totals,totals"
+        value: "team_totals,totals,props"
 
 databases:
   - name: wc-arb-db

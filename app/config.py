@@ -26,7 +26,7 @@ MIN_EDGE_PCT = float(os.getenv("MIN_EDGE_PCT", "0.01"))
 # Kalshi binary ask prices are not directly comparable to PPH O/U juice — exclude by default.
 ARB_EXCLUDE_BOOKS = os.getenv("ARB_EXCLUDE_BOOKS", "kalshi").strip()
 # Only cross-book arbs for these markets (props need exact label match — excluded by default).
-ARB_MARKETS = os.getenv("ARB_MARKETS", "team_totals,totals").strip()
+ARB_MARKETS = os.getenv("ARB_MARKETS", "team_totals,totals,props").strip()
 
 SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./wc_arb.db").strip()
