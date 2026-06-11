@@ -26,6 +26,7 @@ class Offer:
     line: float
     side: str
     american: int
+    period: str = "game"
 
 
 @dataclass(frozen=True)
@@ -60,8 +61,11 @@ def _parse_csv_markets(raw: str) -> frozenset[str]:
     return frozenset(x.strip().lower() for x in (raw or "").split(",") if x.strip())
 
 
-def _period_tag(event_label: str) -> str:
-    label = (event_label or "").strip()
+def _period_tag(offer: Offer) -> str:
+    period = (offer.period or "").strip().lower()
+    if period in ("1h", "game", "props", "futures"):
+        return period
+    label = (offer.event_label or "").strip()
     if label.upper().startswith("[1H]"):
         return "1h"
     if label.upper().startswith("[PROPS]"):
@@ -78,7 +82,7 @@ def _group_key(offer: Offer) -> tuple[str, str, tuple[str, str], str, str, float
         subject = normalize_name(offer.label)
     else:
         subject = " ".join(offer.event_label.lower().split())
-    period = _period_tag(offer.event_label)
+    period = _period_tag(offer)
     return (
         offer.event_date,
         period,

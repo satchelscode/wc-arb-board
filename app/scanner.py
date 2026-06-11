@@ -38,6 +38,8 @@ from app.metallic_parser import (
     MetallicOffer,
     extract_all_offers_from_schedule,
 )
+
+_METALLIC_GAME_CATEGORIES = frozenset({"game"})
 from app.events import matchup_key, matchup_label, opponent_in_event
 from app.models import ArbBoardSnapshot, utc_now
 from app.names import team_norm, team_total_label
@@ -109,6 +111,13 @@ def _offers_by_market(offers: list[Offer]) -> dict[str, int]:
     return counts
 
 
+def _offer_period(mo: MetallicOffer | AceOffer | KalshiOffer) -> str:
+    category = getattr(mo, "category", None)
+    if category == "1h":
+        return "1h"
+    return "game"
+
+
 def _parsed_offers_to_scanner(
     offers: list[MetallicOffer] | list[AceOffer] | list[KalshiOffer],
     *,
@@ -164,6 +173,7 @@ def _parsed_offers_to_scanner(
                 line=mo.line,
                 side=mo.side,
                 american=int(mo.american),
+                period=_offer_period(mo),
             )
         )
     return out
@@ -225,6 +235,7 @@ def collect_metallic_offers() -> list[Offer]:
     if payload is None:
         return []
     parsed = extract_all_offers_from_schedule(payload)
+    parsed = [o for o in parsed if o.category in _METALLIC_GAME_CATEGORIES]
     offers = _parsed_offers_to_scanner(parsed, book="metallic")
     if not offers:
         log.info("Metallic: 0 offers (check schedule POST body / sport menu)")

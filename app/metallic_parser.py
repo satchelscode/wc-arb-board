@@ -125,10 +125,21 @@ def _cell_point_odds(cell: dict[str, Any]) -> tuple[float | None, int | None]:
 def _side_from_bet_id(cell: dict[str, Any]) -> str | None:
     bet_id = str(cell.get("i") or "")
     prefix = bet_id.split("_", 1)[0] if bet_id else ""
-    # Steam22: 4/5 = game total, 6/7 = team total over, 8/9 = team total under.
-    if prefix in ("4", "6", "7"):
+    # Steam22 game totals in ls.t: 4 = over, 5 = under.
+    if prefix == "4":
         return "over"
-    if prefix in ("5", "8", "9"):
+    if prefix == "5":
+        return "under"
+    return None
+
+
+def _team_total_side_from_bet_id(cell: dict[str, Any]) -> str | None:
+    bet_id = str(cell.get("i") or "")
+    prefix = bet_id.split("_", 1)[0] if bet_id else ""
+    # Steam22 team totals in ls.t fallback: 6/7 = over, 8/9 = under (never 4/5).
+    if prefix in ("6", "7"):
+        return "over"
+    if prefix in ("8", "9"):
         return "under"
     return None
 
@@ -191,7 +202,7 @@ def _team_totals_from_ls(ls: dict[str, Any]) -> list[tuple[float, int | None, in
         for cell in ls.get("t") or []:
             if not isinstance(cell, dict):
                 continue
-            side = _side_from_bet_id(cell)
+            side = _team_total_side_from_bet_id(cell)
             if side not in ("over", "under"):
                 continue
             point, odds = _cell_point_odds(cell)
